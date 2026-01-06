@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Читалка (Smart Stream)</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <style>
     :root {
       --primary: #4f46e5;
@@ -371,9 +372,6 @@
   const PRELOAD_AHEAD = 1;
   const SCROLL_THROTTLE_MS = 250;
 
-  // Постоянная компенсация (сек). Если подсветка отстаёт — увеличивай.
-  const HIGHLIGHT_LEAD = 0.18;
-
   // Логи
   const DEBUG = false;
   const LOG_TIMEUPDATE_EVERY_MS = 1000;
@@ -383,6 +381,7 @@
   let chunks = [];
   let currentChunkIndex = 0;
   let currentMarks = [];
+  let adaptiveLead = 0;
 
   // Слова оставлены для совместимости (сейчас не подсвечиваются)
   let currentWordSpans = [];
@@ -410,6 +409,8 @@
   let driftAvg = 0;
   let driftN = 0;
 
+  // requestAnimationFrame loop
+  let rafId = 0;
   // ========== DOM ==========
   const $ = (id) => document.getElementById(id);
 
@@ -818,6 +819,8 @@
     player.pause();
     player.src = "";
 
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
     playerUI.classList.remove('active');
     inputSection.style.display = 'block';
 
@@ -986,29 +989,30 @@
     player.addEventListener(ev, () => logMedia(ev));
   });
 
+  player.addEventListener('playing', () => {
+    if (!rafId) rafId = requestAnimationFrame(highlightFrame);
+  });
+
+  player.addEventListener('pause', () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+  });
+
   player.addEventListener('ended', () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
     if (isPlaying) playChunk(currentChunkIndex + 1);
   });
 
-  player.addEventListener('timeupdate', () => {
-    const now = performance.now();
-    if (now - lastTimeupdateLogAt < LOG_TIMEUPDATE_EVERY_MS) return;
-    lastTimeupdateLogAt = now;
+  function highlightFrame() {
+    if (!isPlaying || player.paused || player.ended) {
+      rafId = 0;
+      return;
+    }
 
-    log('AUDIO timeupdate sample:', {
-      chunk: currentChunkIndex + 1,
-      t: player.currentTime,
-      dur: player.duration,
-      markPtr,
-      marks: currentMarks.length,
-      activeSentence: lastActiveSentenceIndex
-    });
-  });
-
-  // ========== Подсветка (ПРЕДЛОЖЕНИЕ) ==========
-  player.addEventListener('timeupdate', () => {
     const t = player.currentTime;
-    const tt = t + HIGHLIGHT_LEAD;
+    const tt = t + adaptiveLead;
+
 
     let wordIdx = -1;
 
@@ -1016,61 +1020,56 @@
       if (markPtr < currentMarks.length && tt < currentMarks[markPtr]?.offset) {
         markPtr = Math.max(0, findMarkIndexByTime(tt));
       } else {
-        while (markPtr + 1 < currentMarks.length && tt >= currentMarks[markPtr + 1].offset) markPtr++;
+        while (
+          markPtr + 1 < currentMarks.length &&
+          tt >= currentMarks[markPtr + 1].offset
+        ) {
+          markPtr++;
+        }
       }
       wordIdx = Math.min(markPtr, currentMarks.length - 1);
+      // --- автокоррекция рассинхрона ---
+      const m = currentMarks[wordIdx];
+      if (m && typeof m.offset === 'number') {
+        const drift = tt - m.offset;   // + = подсветка позже звука
+        driftN++;
+        driftAvg += (drift - driftAvg) / driftN;
+
+        adaptiveLead -= drift * 0.12;  // коэффициент подобран
+        adaptiveLead = Math.max(-0.4, Math.min(0.6, adaptiveLead));
+      }
     }
 
     let sidx = -1;
     if (currentMarks.length) {
-      if (wordIdx === -1) return;
-      sidx = markToSentence[wordIdx] ?? -1;
+      if (wordIdx !== -1) {
+        sidx = markToSentence[wordIdx] ?? -1;
+      }
     } else if (currentSentenceSpans.length && player.duration > 0) {
       sidx = Math.floor((tt / player.duration) * currentSentenceSpans.length);
       sidx = Math.max(0, Math.min(sidx, currentSentenceSpans.length - 1));
     }
 
-    if (sidx === -1 || sidx === lastActiveSentenceIndex) return;
+    if (sidx !== -1 && sidx !== lastActiveSentenceIndex) {
+      if (lastActiveSentenceIndex !== -1) {
+        currentSentenceSpans[lastActiveSentenceIndex]?.classList.remove('active');
+      }
 
-    if (lastActiveSentenceIndex !== -1) {
-      currentSentenceSpans[lastActiveSentenceIndex]?.classList.remove('active');
-    }
+      lastActiveSentenceIndex = sidx;
+      const el = currentSentenceSpans[sidx];
+      if (el) {
+        el.classList.add('active');
 
-    lastActiveSentenceIndex = sidx;
-    const el = currentSentenceSpans[sidx];
-    if (!el) return;
-
-    el.classList.add('active');
-
-    // drift-метрика (по слову), чтобы понимать постоянное отставание
-    if (currentMarks.length) {
-      const m = currentMarks[wordIdx];
-      const drift = tt - (m?.offset ?? tt);
-      driftN++;
-      driftAvg += (drift - driftAvg) / driftN;
-
-      const now = performance.now();
-      if (DEBUG && now - lastHighlightLogAt >= LOG_HIGHLIGHT_EVERY_MS) {
-        lastHighlightLogAt = now;
-        log('HL sentence change:', {
-          sidx,
-          wordIdx,
-          word: m?.word,
-          t: Number(t.toFixed(3)),
-          tLead: Number(tt.toFixed(3)),
-          offset: Number((m?.offset ?? 0).toFixed(3)),
-          drift: Number(drift.toFixed(3)),
-          driftAvg: Number(driftAvg.toFixed(3))
-        });
+        const now = performance.now();
+        if (now - lastScrollAt > SCROLL_THROTTLE_MS) {
+          ensureVisible(el);
+          lastScrollAt = now;
+        }
       }
     }
 
-    const now = performance.now();
-    if (now - lastScrollAt > SCROLL_THROTTLE_MS) {
-      ensureVisible(el);
-      lastScrollAt = now;
-    }
-  });
+    rafId = requestAnimationFrame(highlightFrame);
+  }
 
   // ========== Экспорт ==========
   window.startReading = startReading;
