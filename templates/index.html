@@ -34,7 +34,8 @@
       background-color: var(--card-bg);
       padding: 2rem;
       border-radius: 1rem;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+                  0 4px 6px -2px rgba(0, 0, 0, 0.05);
       width: 100%;
       max-width: 700px;
       transition: all 0.3s ease;
@@ -351,11 +352,11 @@
   const SCROLL_THROTTLE_MS = 250;
   const DEBUG = false;
 
-  // небольшой опережающий сдвиг подсветки (подбирается на слух)
-  let HIGHLIGHT_LEAD = 0.18; // 180 мс вперёд [web:47]
+  let HIGHLIGHT_LEAD = 0.18;
 
   // ===== СОСТОЯНИЕ =====
   let chunks = [];
+  let chapters = [];
   let currentChunkIndex = 0;
   let currentMarks = [];
 
@@ -399,7 +400,7 @@
   function warn(...args)  { if (DEBUG) console.warn(...args); }
   function err(...args)   { if (DEBUG) console.error(...args); }
 
-// ===== ПРОГРЕСС (localStorage) =====
+  // ===== ПРОГРЕСС (localStorage) =====
   const PROGRESS_KEY = "neuro_reader_progress_v1";
 
   function saveProgress() {
@@ -477,16 +478,50 @@
     return result;
   }
 
+  // ===== ГЛАВЫ / ОГЛАВЛЕНИЕ =====
+  function mapChaptersToChunks(text) {
+    const offsets = [];
+    let pos = 0;
+    for (const ch of chunks) {
+      offsets.push(pos);
+      pos += ch.length;
+    }
+    chapters.forEach(ch => {
+      if (typeof ch.start_char === 'number') {
+        let idx = 0;
+        while (idx + 1 < offsets.length && offsets[idx] < ch.start_char) {
+          idx++;
+        }
+        ch.chunk_index = idx;
+      } else if (typeof ch.page === 'number') {
+        ch.chunk_index = ch.chunk_index ?? 0;
+      } else {
+        ch.chunk_index = ch.chunk_index ?? 0;
+      }
+    });
+  }
+
   function renderNavigation() {
     chapterList.innerHTML = '';
     const frag = document.createDocumentFragment();
 
-    chunks.forEach((chunk, idx) => {
+    const items = (chapters && chapters.length)
+      ? chapters
+      : chunks.map((chunk, idx) => ({
+          title: `${idx + 1}. ${chunk.substring(0, 60)}...`,
+          level: 1,
+          chunk_index: idx
+        }));
+
+    items.forEach((ch, i) => {
       const div = document.createElement('div');
+      const idx = ch.chunk_index ?? i;
       div.className = 'chapter-item';
       div.dataset.idx = String(idx);
       div.id = `nav-item-${idx}`;
-      div.textContent = `${idx + 1}. ${chunk.substring(0, 60)}...`;
+      div.textContent = ch.title || `Фрагмент ${i + 1}`;
+      const level = Number(ch.level) || 1;
+      div.style.paddingLeft = (level - 1) * 16 + 'px';
       frag.appendChild(div);
     });
 
@@ -501,6 +536,20 @@
       navItem.classList.add('active');
       navItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+  }
+
+  function updateActiveChapter() {
+    if (!chapters.length) {
+      setNavActive(currentChunkIndex);
+      return;
+    }
+    let active = chapters[0];
+    for (const ch of chapters) {
+      const ci = Number(ch.chunk_index ?? 0);
+      if (ci <= currentChunkIndex) active = ch;
+      else break;
+    }
+    setNavActive(active.chunk_index ?? 0);
   }
 
   function findMarkIndexByTime(t) {
@@ -534,16 +583,12 @@
     return data;
   }
 
-  // подгоняем marks под фактическую длину аудио, чтобы убрать накопленный дрейф [web:45]
   function rescaleMarksToDuration() {
     if (!currentMarks.length || !Number.isFinite(player.duration) || player.duration <= 0) return;
-
     const last = currentMarks[currentMarks.length - 1].offset;
     if (!Number.isFinite(last) || last <= 0) return;
-
     const scale = player.duration / last;
-    if (Math.abs(1 - scale) < 0.02) return; // меньше 2% — можно не трогать
-
+    if (Math.abs(1 - scale) < 0.02) return;
     currentMarks = currentMarks.map(m => ({
       ...m,
       offset: m.offset * scale
@@ -607,7 +652,7 @@
     }
   }
 
-  // ===== РЕНДЕР ТЕКСТА (ПО СЛОВАМ) =====
+  // ===== РЕНДЕР ТЕКСТА =====
   function renderInteractiveText(text) {
     bookDisplay.innerHTML = '';
     currentWordSpans = [];
@@ -629,14 +674,13 @@
     bookDisplay.scrollTop = 0;
   }
 
-  // ===== FRAME LOOP (ПОДСВЕТКА) =====
+  // ===== FRAME LOOP =====
   function highlightFrame() {
     if (!isPlaying || player.paused || player.ended) {
       rafId = 0;
       return;
     }
 
-    // учитываем опережающий сдвиг [web:47]
     const t = player.currentTime + HIGHLIGHT_LEAD;
     let idx = -1;
 
@@ -678,7 +722,7 @@
     currentChunkIndex = index;
     resetHighlightState();
     updateProgressUI();
-    setNavActive(index);
+    updateActiveChapter();
     setStatus(`Генерация фрагмента ${index + 1}...`, '');
 
     const data = audioCache.get(index) || await fetchAudio(index);
@@ -691,12 +735,10 @@
     currentMarks = Array.isArray(data.marks) ? data.marks : [];
     renderInteractiveText(chunks[index]);
 
-    // ставим src и после загрузки метаданных нормализуем метки [web:45]
     player.src = data.audio_url;
     player.onloadedmetadata = () => {
       rescaleMarksToDuration();
 
-      // если есть сохранённый прогресс и это тот же chunk — восстановим позицию
       const saved = loadProgress();
       if (saved &&
           Number.isFinite(saved.position) &&
@@ -742,7 +784,6 @@
     abortAllRequests();
     clearCaches();
     setStatus('Чтение остановлено.', '');
-    // прогресс остаётся в localStorage
   }
 
   // ===== ЗАГРУЗКА ФАЙЛА =====
@@ -763,6 +804,11 @@
       if (!res.ok) throw new Error(data.error || 'Ошибка обработки файла');
 
       textInput.value = data.text || '';
+      chapters = Array.isArray(data.chapters) ? data.chapters : [];
+      chunks = splitText(textInput.value);
+      mapChaptersToChunks(textInput.value);
+      renderNavigation();
+
       setStatus(`Успешно загружено! Символов: ${textInput.value.length}`, 'success');
       setTimeout(() => { if (!isPlaying) setStatus('', ''); }, 3000);
     } catch (e) {
@@ -794,6 +840,7 @@
     currentChunkIndex = 0;
     isPlaying = true;
 
+    mapChaptersToChunks(text);
     renderNavigation();
 
     inputSection.style.display = 'none';
@@ -827,10 +874,9 @@
     if (Number.isFinite(idx)) playChunk(idx);
   });
 
-  // ===== Media события (драйвим RAF) =====
+  // ===== Media события =====
   player.addEventListener('playing', () => {
     if (!rafId) rafId = requestAnimationFrame(highlightFrame);
-    // запускаем периодическое сохранение прогресса
     saveProgress();
   });
 
@@ -845,8 +891,6 @@
     if (isPlaying) playChunk(currentChunkIndex + 1);
   });
 
-
-  // периодически сохраняем прогресс во время воспроизведения
   setInterval(() => {
     if (!player.paused && !player.ended) {
       saveProgress();
@@ -857,14 +901,13 @@
     const p = loadProgress();
     if (!p || !p.text) return;
 
-    // восстановить текст и голос
     textInput.value = p.text;
     if (p.voice) voiceSelect.value = p.voice;
 
-    // подготовить chunks
     chunks = splitText(p.text);
     if (!chunks.length) return;
 
+    chapters = [];
     renderNavigation();
 
     if (Number.isFinite(p.chunk_index) &&
@@ -874,14 +917,13 @@
       setNavActive(currentChunkIndex);
     }
 
-    // сразу переходим в режим плеера и запускаем нужный фрагмент
     inputSection.style.display = 'none';
     playerUI.classList.add('active');
     isPlaying = true;
     await playChunk(currentChunkIndex);
   });
 
-  // экспорт (по желанию)
+  // экспорт для отладки
   window.startReading = startReading;
   window.stopReading  = stopReading;
   window.nextChunk    = nextChunk;
@@ -890,11 +932,11 @@
   window.uploadFile   = uploadFile;
 
   window._dbg = {
-    get chunks()       { return chunks; },
-    get currentMarks() { return currentMarks; },
-    get audioCache()   { return audioCache; },
-    get inFlight()     { return inFlight; },
-    get controllers()  { return controllers; },
+    get chunks()        { return chunks; },
+    get currentMarks()  { return currentMarks; },
+    get audioCache()    { return audioCache; },
+    get inFlight()      { return inFlight; },
+    get controllers()   { return controllers; },
     player,
     inferOffsetUnit,
   };

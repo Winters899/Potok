@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -22,10 +23,8 @@ app = Flask(__name__)
 # ----------------------------
 BASE_DIR = Path(__file__).resolve().parent
 CACHE_DIR = BASE_DIR / "audio_cache"
-# Гарантируем, что каталог кэша существует до любых операций записи
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Файл для хранения прогресса чтения (последняя книга/позиция)
 PROGRESS_PATH = BASE_DIR / "progress.json"
 
 ALLOWED_VOICES = {
@@ -41,7 +40,6 @@ AUDIO_EXT = ".mp3"
 AUDIO_MIME = "audio/mpeg"
 MARKS_EXT = ".json"
 
-# Очистка кэша
 CACHE_MAX_AGE_SEC = 3 * 24 * 3600
 CACHE_MAX_PAIRS = 2000
 CACHE_CLEANUP_EVERY_SEC = 10 * 60
@@ -90,14 +88,176 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".part")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp, path)  # atomic replace [web:132]
+    os.replace(tmp, path)
 
 
 def _read_json(path: Path) -> Any:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+# ----------------------------
+# Chapter detection
+# ----------------------------
+def _detect_chapters_fb2(root: BeautifulSoup) -> list[dict]:
+    """
+    Строим меню глав по структуре FB2: body/section/title.
+    Рекурсивно обходим все section на любой глубине. [web:96][web:137]
+    """
+    chapters: list[dict] = []
 
+    def walk_section(section, level: int) -> None:
+        # Ищем title только на текущем уровне section (не во вложенных)
+        title_tag = section.find("title", recursive=False)
+        if title_tag:
+            # title может содержать несколько <p>, склеиваем их
+            title_text = " ".join(
+                p.get_text(strip=True) for p in title_tag.find_all("p")
+            )
+            if title_text:
+                chapters.append({"title": title_text, "level": level})
+        
+        # Рекурсивно обходим все вложенные section
+        for child in section.find_all("section", recursive=False):
+            walk_section(child, level + 1)
+
+    # Ищем все body (обычно один, но может быть notes и т.п.)
+    for body in root.find_all("body"):
+        # Пропускаем body с name="notes" или другие служебные
+        body_name = body.get("name", "")
+        if body_name and body_name != "notes":
+            # Если у body есть имя, но это не notes, обрабатываем
+            pass
+        elif body_name == "notes":
+            # Пропускаем примечания
+            continue
+        
+        # Обходим все section на верхнем уровне body
+        for section in body.find_all("section", recursive=False):
+            walk_section(section, level=1)
+
+    return chapters
+
+
+def _detect_chapters_pdf_outlines(reader: PdfReader) -> list[dict]:
+    """
+    Главы из встроенных закладок (outlines/bookmarks). [web:105]
+    """
+    chapters: list[dict] = []
+    try:
+        outlines = reader.outline
+    except Exception:
+        try:
+            outlines = reader.outlines
+        except Exception:
+            outlines = []
+
+    def walk(items, level: int) -> None:
+        from pypdf.generic import Destination
+
+        for it in items:
+            if isinstance(it, list):
+                walk(it, level + 1)
+                continue
+            try:
+                if isinstance(it, Destination):
+                    title = str(it.title)
+                    page_num = reader.get_destination_page_number(it)
+                else:
+                    title = str(getattr(it, "title", "") or it)
+                    dest = reader.get_destination(it)
+                    page_num = reader.get_destination_page_number(dest)
+                chapters.append(
+                    {"title": title.strip(), "level": level, "page": int(page_num)}
+                )
+            except Exception:
+                continue
+
+    try:
+        if outlines:
+            walk(outlines, level=1)
+    except Exception:
+        chapters = []
+
+    seen = set()
+    result: list[dict] = []
+    for ch in chapters:
+        key = (ch.get("title"), ch.get("page"))
+        if not ch.get("title") or key in seen:
+            continue
+        seen.add(key)
+        result.append(ch)
+    return result
+
+
+def _detect_chapters_pdf_text(pages: list[str]) -> list[dict]:
+    """
+    Fallback для PDF: ищем заголовки глав в plain-text. [web:108]
+    """
+    chapter_re = re.compile(
+        r"^\s*(глава|часть|раздел|chapter|part)\s+\d+.*$|"
+        r"^\s*(вступление|введение|заключение|об авторе|предисловие|послесловие|"
+        r"introduction|preface|conclusion)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+    chapters: list[dict] = []
+    for i, page_text in enumerate(pages):
+        for m in chapter_re.finditer(page_text):
+            title = m.group(0).strip()
+            chapters.append({"title": title, "level": 1, "page": i})
+
+    seen = set()
+    result: list[dict] = []
+    for ch in chapters:
+        key = (ch["title"], ch["page"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(ch)
+    return result
+
+
+def _detect_chapters_text_plain(text: str) -> list[dict]:
+    """
+    Fallback для FB2/любого текста: ищем заголовки по разным шаблонам. [web:108]
+    """
+    patterns = [
+        # Глава/Часть/Раздел + номер (арабский или римский)
+        r"^\s*(глава|часть|раздел|chapter|part)\s+[IVXLCDM\d]+[:\.\s].*$",
+        # Просто номер в начале строки (1., I., и т.п.)
+        r"^\s*([IVXLCDM]+|\d+)\.\s+[А-ЯA-Z].*$",
+        # Ключевые слова (вступление, введение и т.п.)
+        r"^\s*(вступление|введение|заключение|об авторе|предисловие|послесловие|эпилог|пролог|"
+        r"introduction|preface|conclusion|epilogue|prologue)\s*$",
+        # Заголовок заглавными (минимум 3 слова заглавными)
+        r"^[А-ЯA-Z][А-ЯA-Z\s]{10,}$",
+    ]
+
+    combined = "|".join(f"({p})" for p in patterns)
+    chapter_re = re.compile(combined, re.IGNORECASE | re.MULTILINE)
+
+    chapters: list[dict] = []
+    for m in chapter_re.finditer(text):
+        title = m.group(0).strip()
+        # Пропускаем слишком длинные "заголовки" (вероятно, не заголовки)
+        if len(title) > 200:
+            continue
+        start = m.start()
+        chapters.append({"title": title, "level": 1, "start_char": start})
+
+    seen = set()
+    result: list[dict] = []
+    for ch in chapters:
+        key = (ch["title"], ch["start_char"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(ch)
+    return result
+
+# ----------------------------
+# Cache cleanup
+# ----------------------------
 def _cleanup_cache_once() -> None:
     now = time.time()
 
@@ -107,7 +267,6 @@ def _cleanup_cache_once() -> None:
 
     removed = 0
 
-    # 1) удалить сироты (есть только audio или только marks)
     for k in list(keys):
         a = audio_files.get(k)
         m = marks_files.get(k)
@@ -122,7 +281,6 @@ def _cleanup_cache_once() -> None:
             except OSError:
                 pass
 
-    # 2) собрать пары и удалить старые/лишние
     pairs: List[tuple[str, float]] = []
     for a in CACHE_DIR.glob(f"*{AUDIO_EXT}"):
         m = CACHE_DIR / (a.stem + MARKS_EXT)
@@ -134,9 +292,8 @@ def _cleanup_cache_once() -> None:
         except FileNotFoundError:
             continue
 
-    pairs.sort(key=lambda x: x[1])  # старые первыми
+    pairs.sort(key=lambda x: x[1])
 
-    # 2a) по возрасту
     for k, mt in pairs:
         if now - mt <= CACHE_MAX_AGE_SEC:
             continue
@@ -147,7 +304,6 @@ def _cleanup_cache_once() -> None:
         except OSError:
             pass
 
-    # 2b) по количеству
     pairs = []
     for a in CACHE_DIR.glob(f"*{AUDIO_EXT}"):
         m = CACHE_DIR / (a.stem + MARKS_EXT)
@@ -176,6 +332,7 @@ def _cleanup_cache_once() -> None:
 
 _cleanup_thread_started = False
 
+
 def start_cache_cleanup_thread_once() -> None:
     global _cleanup_thread_started
     if _cleanup_thread_started:
@@ -194,7 +351,6 @@ def start_cache_cleanup_thread_once() -> None:
     t.start()
     log.info("Cache cleanup thread started")
 
-
 # ----------------------------
 # Routes
 # ----------------------------
@@ -212,26 +368,45 @@ def extract_text():
     filename = (file.filename or "").lower()
 
     try:
+        chapters: list[dict] = []
+
+        log.info("extract_text: filename=%r", filename)
+
         if filename.endswith(".pdf"):
             reader = PdfReader(file)
-            parts: List[str] = []
+            pages: List[str] = []
             for page in reader.pages:
                 t = page.extract_text() or ""
                 if t:
-                    parts.append(t)
-            text = "\n".join(parts).strip()
+                    pages.append(t)
+            text = "\n".join(pages).strip()
+            log.info("extract_text: pdf pages=%s text_len=%s", len(pages), len(text))
+
+            chapters = _detect_chapters_pdf_outlines(reader)
+            log.info("extract_text: pdf outlines chapters=%s", len(chapters))
+            if not chapters:
+                chapters = _detect_chapters_pdf_text(pages)
+                log.info("extract_text: pdf text chapters=%s", len(chapters))
 
         elif filename.endswith(".fb2"):
-            soup = BeautifulSoup(file.read(), "xml")
+            raw = file.read()
+            soup = BeautifulSoup(raw, "xml")
             text = "\n".join(p.get_text() for p in soup.find_all("p")).strip()
-
+            
+            chapters = _detect_chapters_fb2(soup)
+            log.info("extract_text: fb2 structural chapters=%s", len(chapters))
+            
+            if not chapters:
+                chapters = _detect_chapters_text_plain(text)
+                log.info("extract_text: fb2 text-fallback chapters=%s", len(chapters))
         else:
             return jsonify({"error": "Unsupported format"}), 400
 
         if len(text) > MAX_TEXT_LEN:
             return jsonify({"error": "Extracted text too long"}), 413
 
-        return jsonify({"text": text})
+        log.info("extract_text: ok text_len=%s chapters=%s", len(text), len(chapters))
+        return jsonify({"text": text, "chapters": chapters})
     except Exception as e:
         log.exception("extract_text failed")
         return jsonify({"error": str(e)}), 500
@@ -239,19 +414,8 @@ def extract_text():
 
 @app.post("/save_progress")
 def save_progress() -> tuple[str, int] | tuple[dict, int]:
-    """
-    Сохраняем прогресс чтения в локальный файл progress.json.
-    Ожидаем JSON:
-      {
-        "text": "...",
-        "voice": "ru-RU-DmitryNeural",
-        "chunk_index": 3,
-        "position": 42.35
-      }
-    """
     data = request.get_json(force=True, silent=True) or {}
     try:
-        # минимальная валидация
         text = (data.get("text") or "").strip()
         if not text:
             return jsonify({"error": "Empty text"}), 400
@@ -259,6 +423,13 @@ def save_progress() -> tuple[str, int] | tuple[dict, int]:
         with open(PROGRESS_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+        log.info(
+            "save_progress: len=%s voice=%s chunk_index=%s position=%.2f",
+            len(text),
+            data.get("voice"),
+            data.get("chunk_index"),
+            float(data.get("position") or 0.0),
+        )
         return "", 204
     except Exception:
         log.exception("save_progress failed")
@@ -267,26 +438,27 @@ def save_progress() -> tuple[str, int] | tuple[dict, int]:
 
 @app.get("/load_progress")
 def load_progress():
-    """
-    Отдаём последний сохранённый прогресс, если есть.
-    """
     if not PROGRESS_PATH.exists():
         return jsonify({})
 
     try:
         with open(PROGRESS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
+        log.info(
+            "load_progress: text_len=%s voice=%s chunk_index=%s position=%s",
+            len(data.get("text") or ""),
+            data.get("voice"),
+            data.get("chunk_index"),
+            data.get("position"),
+        )
         return jsonify(data)
     except Exception:
         log.exception("load_progress failed")
         return jsonify({}), 500
 
+
 @app.post("/speak")
 def speak():
-    """
-    Синхронная обертка над generate_with_timings через asyncio.run.
-    Избавляемся от глобального Semaphore, чтобы не ловить конфликт event loop. [web:57][web:62]
-    """
     data = request.get_json(force=True, silent=True) or {}
     text = (data.get("text") or "").strip()
     voice = _safe_voice(data.get("voice") or "ru-RU-DmitryNeural")
@@ -294,9 +466,9 @@ def speak():
     preview = text[:80].replace("\n", "\\n")
     tail = text[-80:].replace("\n", "\\n")
     log.info("speak text preview=%r tail=%r", preview, tail)
-    
+
     if not text:
-        return jsonify({"error": "Empty text"}), 400    
+        return jsonify({"error": "Empty text"}), 400
     if len(text) > MAX_TEXT_LEN:
         return jsonify({"error": "Text too long"}), 413
 
@@ -304,21 +476,26 @@ def speak():
     a_path = _audio_path(key)
     m_path = _marks_path(key)
 
-    # Cache hit
     if a_path.exists() and m_path.exists():
         try:
             marks = _read_json(m_path)
-            log.info("speak cache hit key=%s voice=%s marks=%s", key[:12], voice, len(marks))
-            return jsonify({
-                "audio_url": f"/get_audio/{_audio_name(key)}",
-                "marks": marks,
-                "cache": True,
-            })
+            log.info(
+                "speak cache hit key=%s voice=%s marks=%s",
+                key[:12],
+                voice,
+                len(marks),
+            )
+            return jsonify(
+                {
+                    "audio_url": f"/get_audio/{_audio_name(key)}",
+                    "marks": marks,
+                    "cache": True,
+                }
+            )
         except Exception:
             a_path.unlink(missing_ok=True)
             m_path.unlink(missing_ok=True)
 
-    # Неконсистентный кэш -> удалить
     if a_path.exists() != m_path.exists():
         a_path.unlink(missing_ok=True)
         m_path.unlink(missing_ok=True)
@@ -326,20 +503,24 @@ def speak():
     log.info("speak generate key=%s voice=%s len=%s", key[:12], voice, len(text))
 
     try:
-        # синхронный запуск edge-tts
-        marks = asyncio.run(generate_with_timings(text=text, voice=voice, audio_path=a_path))
-        _atomic_write_json(m_path, marks)  # atomic [web:132]
+        marks = asyncio.run(
+            generate_with_timings(text=text, voice=voice, audio_path=a_path)
+        )
+        _atomic_write_json(m_path, marks)
 
-        return jsonify({
-            "audio_url": f"/get_audio/{_audio_name(key)}",
-            "marks": marks,
-            "cache": False,
-        })
+        return jsonify(
+            {
+                "audio_url": f"/get_audio/{_audio_name(key)}",
+                "marks": marks,
+                "cache": False,
+            }
+        )
     except Exception as e:
         a_path.unlink(missing_ok=True)
         m_path.unlink(missing_ok=True)
         log.exception("speak failed key=%s", key[:12])
         return jsonify({"error": str(e)}), 500
+
 
 @app.get("/get_audio/<path:filename>")
 def get_audio(filename: str):
@@ -350,23 +531,23 @@ def get_audio(filename: str):
     if not path.exists():
         return "Not found", 404
 
-    return send_from_directory(CACHE_DIR, filename, mimetype=AUDIO_MIME, conditional=True)
-
+    return send_from_directory(
+        CACHE_DIR, filename, mimetype=AUDIO_MIME, conditional=True
+    )
 
 # ----------------------------
 # edge-tts
 # ----------------------------
-async def generate_with_timings(*, text: str, voice: str, audio_path: Path) -> List[Dict[str, Any]]:
+async def generate_with_timings(
+    *, text: str, voice: str, audio_path: Path
+) -> List[Dict[str, Any]]:
     """
-    WordBoundary offset обычно в 100-нс "тиках"; перевод в секунды: / 10_000_000. [web:54]
+    WordBoundary offset в 100-нс тиках; перевод в секунды: / 10_000_000. [web:122]
     """
     communicate = edge_tts.Communicate(text, voice)
     marks: List[Dict[str, Any]] = []
 
-    # путь к временному файлу рядом с целевым mp3
     tmp_audio = audio_path.with_suffix(audio_path.suffix + ".part")
-
-    # на всякий случай убеждаемся, что директория существует
     audio_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -381,14 +562,16 @@ async def generate_with_timings(*, text: str, voice: str, audio_path: Path) -> L
                     text_offset = int(chunk["text_offset"])
                     word_len = int(chunk["word_length"])
 
-                    marks.append({
-                        "offset": float(chunk["offset"]) / 10_000_000,  # seconds [web:54]
-                        "text_offset": text_offset,
-                        "word_len": word_len,
-                        "word": text[text_offset:text_offset + word_len].strip(),
-                    })
+                    marks.append(
+                        {
+                            "offset": float(chunk["offset"]) / 10_000_000,
+                            "text_offset": text_offset,
+                            "word_len": word_len,
+                            "word": text[text_offset : text_offset + word_len].strip(),
+                        }
+                    )
 
-        os.replace(tmp_audio, audio_path)  # atomic [web:132]
+        os.replace(tmp_audio, audio_path)
         return marks
 
     except Exception:
@@ -400,9 +583,6 @@ async def generate_with_timings(*, text: str, voice: str, audio_path: Path) -> L
 
 
 if __name__ == "__main__":
-    # Flask рекомендует делать setup до app.run() (а не через несуществующие lifecycle hooks) [web:170]
     _cleanup_cache_once()
     start_cache_cleanup_thread_once()
-
-    # reloader лучше выключить, чтобы не запускать дважды
     app.run(debug=True, port=5000, use_reloader=False)
