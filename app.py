@@ -25,6 +25,9 @@ CACHE_DIR = BASE_DIR / "audio_cache"
 # Гарантируем, что каталог кэша существует до любых операций записи
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+# Файл для хранения прогресса чтения (последняя книга/позиция)
+PROGRESS_PATH = BASE_DIR / "progress.json"
+
 ALLOWED_VOICES = {
     "ru-RU-DmitryNeural",
     "ru-RU-SvetlanaNeural",
@@ -37,10 +40,6 @@ MAX_TEXT_LEN = 1_000_000
 AUDIO_EXT = ".mp3"
 AUDIO_MIME = "audio/mpeg"
 MARKS_EXT = ".json"
-
-# Ограничим параллельные генерации (чтобы не уронить edge-tts/канал)
-MAX_CONCURRENT_SYNTH = 2
-synth_sem = asyncio.Semaphore(MAX_CONCURRENT_SYNTH)
 
 # Очистка кэша
 CACHE_MAX_AGE_SEC = 3 * 24 * 3600
@@ -238,20 +237,66 @@ def extract_text():
         return jsonify({"error": str(e)}), 500
 
 
+@app.post("/save_progress")
+def save_progress() -> tuple[str, int] | tuple[dict, int]:
+    """
+    Сохраняем прогресс чтения в локальный файл progress.json.
+    Ожидаем JSON:
+      {
+        "text": "...",
+        "voice": "ru-RU-DmitryNeural",
+        "chunk_index": 3,
+        "position": 42.35
+      }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        # минимальная валидация
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"error": "Empty text"}), 400
+
+        with open(PROGRESS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        return "", 204
+    except Exception:
+        log.exception("save_progress failed")
+        return jsonify({"error": "save_progress failed"}), 500
+
+
+@app.get("/load_progress")
+def load_progress():
+    """
+    Отдаём последний сохранённый прогресс, если есть.
+    """
+    if not PROGRESS_PATH.exists():
+        return jsonify({})
+
+    try:
+        with open(PROGRESS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception:
+        log.exception("load_progress failed")
+        return jsonify({}), 500
+
 @app.post("/speak")
-async def speak():
-    # async view поддерживается Flask при установке Flask[async] [web:121]
+def speak():
+    """
+    Синхронная обертка над generate_with_timings через asyncio.run.
+    Избавляемся от глобального Semaphore, чтобы не ловить конфликт event loop. [web:57][web:62]
+    """
     data = request.get_json(force=True, silent=True) or {}
     text = (data.get("text") or "").strip()
     voice = _safe_voice(data.get("voice") or "ru-RU-DmitryNeural")
-    
+
     preview = text[:80].replace("\n", "\\n")
     tail = text[-80:].replace("\n", "\\n")
     log.info("speak text preview=%r tail=%r", preview, tail)
-
-
+    
     if not text:
-        return jsonify({"error": "Empty text"}), 400
+        return jsonify({"error": "Empty text"}), 400    
     if len(text) > MAX_TEXT_LEN:
         return jsonify({"error": "Text too long"}), 413
 
@@ -262,7 +307,7 @@ async def speak():
     # Cache hit
     if a_path.exists() and m_path.exists():
         try:
-            marks = await asyncio.to_thread(_read_json, m_path)
+            marks = _read_json(m_path)
             log.info("speak cache hit key=%s voice=%s marks=%s", key[:12], voice, len(marks))
             return jsonify({
                 "audio_url": f"/get_audio/{_audio_name(key)}",
@@ -270,7 +315,6 @@ async def speak():
                 "cache": True,
             })
         except Exception:
-            # битый json -> удаляем пару и перегенерим
             a_path.unlink(missing_ok=True)
             m_path.unlink(missing_ok=True)
 
@@ -282,10 +326,9 @@ async def speak():
     log.info("speak generate key=%s voice=%s len=%s", key[:12], voice, len(text))
 
     try:
-        async with synth_sem:
-            marks = await generate_with_timings(text=text, voice=voice, audio_path=a_path)
-
-        await asyncio.to_thread(_atomic_write_json, m_path, marks)  # atomic [web:132]
+        # синхронный запуск edge-tts
+        marks = asyncio.run(generate_with_timings(text=text, voice=voice, audio_path=a_path))
+        _atomic_write_json(m_path, marks)  # atomic [web:132]
 
         return jsonify({
             "audio_url": f"/get_audio/{_audio_name(key)}",
@@ -297,7 +340,6 @@ async def speak():
         m_path.unlink(missing_ok=True)
         log.exception("speak failed key=%s", key[:12])
         return jsonify({"error": str(e)}), 500
-
 
 @app.get("/get_audio/<path:filename>")
 def get_audio(filename: str):

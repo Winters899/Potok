@@ -399,6 +399,35 @@
   function warn(...args)  { if (DEBUG) console.warn(...args); }
   function err(...args)   { if (DEBUG) console.error(...args); }
 
+// ===== ПРОГРЕСС (localStorage) =====
+  const PROGRESS_KEY = "neuro_reader_progress_v1";
+
+  function saveProgress() {
+    if (!chunks.length || !isPlaying) return;
+    const payload = {
+      text: textInput.value,
+      voice: voiceSelect.value,
+      chunk_index: currentChunkIndex,
+      position: player.currentTime
+    };
+    try {
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify(payload));
+    } catch (e) {
+      err("saveProgress failed", e);
+    }
+  }
+
+  function loadProgress() {
+    try {
+      const raw = localStorage.getItem(PROGRESS_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) {
+      err("loadProgress failed", e);
+      return null;
+    }
+  }
+
   // ===== УТИЛИТЫ =====
   function setStatus(text, kind) {
     statusEl.textContent = text || '';
@@ -701,6 +730,7 @@
     abortAllRequests();
     clearCaches();
     setStatus('Чтение остановлено.', '');
+    // прогресс остаётся в localStorage
   }
 
   // ===== ЗАГРУЗКА ФАЙЛА =====
@@ -788,6 +818,8 @@
   // ===== Media события (драйвим RAF) =====
   player.addEventListener('playing', () => {
     if (!rafId) rafId = requestAnimationFrame(highlightFrame);
+    // запускаем периодическое сохранение прогресса
+    saveProgress();
   });
 
   player.addEventListener('pause', () => {
@@ -799,6 +831,42 @@
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
     if (isPlaying) playChunk(currentChunkIndex + 1);
+  });
+
+
+  // периодически сохраняем прогресс во время воспроизведения
+  setInterval(() => {
+    if (!player.paused && !player.ended) {
+      saveProgress();
+    }
+  }, 3000);
+
+  // ===== АВТОВОССТАНОВЛЕНИЕ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ =====
+  window.addEventListener('load', () => {
+    const p = loadProgress();
+    if (!p || !p.text) return;
+
+    // восстановить текст и голос
+    textInput.value = p.text;
+    if (p.voice) voiceSelect.value = p.voice;
+
+    // подготовитьChunks и UI, но не автозапускать без желания пользователя
+    chunks = splitText(p.text);
+    if (!chunks.length) return;
+
+    renderNavigation();
+    updateProgressUI();
+
+    // если есть валидный индекс фрагмента — подсветим его в списке
+    if (Number.isFinite(p.chunk_index) && p.chunk_index >= 0 && p.chunk_index < chunks.length) {
+      currentChunkIndex = p.chunk_index;
+      setNavActive(currentChunkIndex);
+    }
+
+    // опционально можно сразу скрыть input и показать player,
+    // но без автостарта аудио, чтобы не пугать пользователя
+    // inputSection.style.display = 'none';
+    // playerUI.classList.add('active');
   });
 
   // экспорт (по желанию)
