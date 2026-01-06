@@ -13,10 +13,10 @@
       --text: #1f2937;
       --text-light: #6b7280;
       --border: #e5e7eb;
-      --error: #ef4444;
+      --error: #10b981;
       --success: #10b981;
-      --highlight-bg: #fef08a;
-      --highlight-border: #f59e0b;
+      --highlight-bg: #4338ca;
+      --highlight-border: #4338ca;
     }
 
     body {
@@ -353,7 +353,7 @@
   const CHUNK_SIZE = 1500;
   const PRELOAD_AHEAD = 1;
   const SCROLL_THROTTLE_MS = 250;
-
+  const HIGHLIGHT_LEAD = 1; // секунды: подсветка "вперёд", компенсирует постоянное отставание
   // Логи
   const DEBUG = true;                 // выключи в false, когда не нужно
   const LOG_TIMEUPDATE_EVERY_MS = 1000;
@@ -983,17 +983,18 @@
   // ========== Подсветка ==========
   player.addEventListener('timeupdate', () => {
     const t = player.currentTime;
+    const tt = t + HIGHLIGHT_LEAD;
     let idx = -1;
 
     if (currentMarks.length) {
-      if (markPtr < currentMarks.length && t < currentMarks[markPtr]?.offset) {
-        markPtr = Math.max(0, findMarkIndexByTime(t));
+      if (markPtr < currentMarks.length && tt < currentMarks[markPtr]?.offset) {
+        markPtr = Math.max(0, findMarkIndexByTime(tt));
       } else {
-        while (markPtr + 1 < currentMarks.length && t >= currentMarks[markPtr + 1].offset) markPtr++;
+        while (markPtr + 1 < currentMarks.length && tt >= currentMarks[markPtr + 1].offset) markPtr++;
       }
       idx = Math.min(markPtr, currentMarks.length - 1);
     } else if (currentWordSpans.length && player.duration > 0) {
-      idx = Math.floor((t / player.duration) * currentWordSpans.length);
+      idx = Math.floor((tt / player.duration) * currentWordSpans.length);
       idx = Math.max(0, Math.min(idx, currentWordSpans.length - 1));
     }
 
@@ -1010,7 +1011,7 @@
     // drift-метрика (только в точном режиме)
     if (currentMarks.length) {
       const m = currentMarks[idx];
-      const drift = t - (m?.offset ?? t); // >0: подсветка "позже" речи, <0: "раньше"
+      const drift = tt - (m?.offset ?? tt); // теперь drift считается с учётом 
       driftN++;
       driftAvg += (drift - driftAvg) / driftN;
 
