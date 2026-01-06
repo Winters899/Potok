@@ -695,6 +695,18 @@
     player.src = data.audio_url;
     player.onloadedmetadata = () => {
       rescaleMarksToDuration();
+
+      // если есть сохранённый прогресс и это тот же chunk — восстановим позицию
+      const saved = loadProgress();
+      if (saved &&
+          Number.isFinite(saved.position) &&
+          saved.chunk_index === currentChunkIndex) {
+        try {
+          player.currentTime = saved.position;
+        } catch (e) {
+          err("restore position failed", e);
+        }
+      }
     };
 
     setStatus(`Читаю фрагмент ${index + 1}...`, '');
@@ -841,8 +853,7 @@
     }
   }, 3000);
 
-  // ===== АВТОВОССТАНОВЛЕНИЕ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ =====
-  window.addEventListener('load', () => {
+  window.addEventListener('load', async () => {
     const p = loadProgress();
     if (!p || !p.text) return;
 
@@ -850,23 +861,24 @@
     textInput.value = p.text;
     if (p.voice) voiceSelect.value = p.voice;
 
-    // подготовитьChunks и UI, но не автозапускать без желания пользователя
+    // подготовить chunks
     chunks = splitText(p.text);
     if (!chunks.length) return;
 
     renderNavigation();
-    updateProgressUI();
 
-    // если есть валидный индекс фрагмента — подсветим его в списке
-    if (Number.isFinite(p.chunk_index) && p.chunk_index >= 0 && p.chunk_index < chunks.length) {
+    if (Number.isFinite(p.chunk_index) &&
+        p.chunk_index >= 0 &&
+        p.chunk_index < chunks.length) {
       currentChunkIndex = p.chunk_index;
       setNavActive(currentChunkIndex);
     }
 
-    // опционально можно сразу скрыть input и показать player,
-    // но без автостарта аудио, чтобы не пугать пользователя
-    // inputSection.style.display = 'none';
-    // playerUI.classList.add('active');
+    // сразу переходим в режим плеера и запускаем нужный фрагмент
+    inputSection.style.display = 'none';
+    playerUI.classList.add('active');
+    isPlaying = true;
+    await playChunk(currentChunkIndex);
   });
 
   // экспорт (по желанию)
