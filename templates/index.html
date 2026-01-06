@@ -16,8 +16,6 @@
       --border: #e5e7eb;
       --error: #10b981;
       --success: #10b981;
-      --highlight-bg: #4338ca;
-      --highlight-border: #4338ca;
     }
 
     body {
@@ -182,13 +180,11 @@
       min-height: 200px;
       white-space: pre-wrap;
       position: relative;
-
       max-height: 360px;
       overflow-y: auto;
       overscroll-behavior: contain;
     }
 
-    /* Стили слов оставлены (на случай, если вернёшь подсветку по словам) */
     .w {
       cursor: pointer;
       border-radius: 3px;
@@ -203,26 +199,8 @@
       border-radius: 4px;
       color: #000;
       font-weight: bold;
+      position: relative;
       z-index: 10;
-      position: relative;
-    }
-
-    /* Предложения */
-    .s {
-      cursor: pointer;
-      border-radius: 3px;
-      transition: background 0.1s;
-      padding: 0 2px;
-      display: inline;
-    }
-    .s:hover { background: #e0e7ff; }
-    .s.active {
-      background-color: #ffeb3b;
-      outline: 2px solid #f59e0b;
-      border-radius: 4px;
-      color: #000;
-      font-weight: bold;
-      position: relative;
     }
 
     .chapter-list {
@@ -367,105 +345,64 @@
 </div>
 
 <script>
-  // ========== КОНФИГУРАЦИЯ ==========
+  // ===== КОНФИГ =====
   const CHUNK_SIZE = 1500;
   const PRELOAD_AHEAD = 1;
   const SCROLL_THROTTLE_MS = 250;
-
-  // Логи
   const DEBUG = false;
-  const LOG_TIMEUPDATE_EVERY_MS = 1000;
-  const LOG_HIGHLIGHT_EVERY_MS = 350;
 
-  // ========== СОСТОЯНИЕ ==========
+  // ===== СОСТОЯНИЕ =====
   let chunks = [];
   let currentChunkIndex = 0;
   let currentMarks = [];
-  let adaptiveLead = 0;
 
-  // Слова оставлены для совместимости (сейчас не подсвечиваются)
   let currentWordSpans = [];
-
-  // Предложения
-  let currentSentenceSpans = [];
-  let markToSentence = [];
-
   let isPlaying = false;
-
-  let lastActiveIndex = -1;             // (слова) legacy
-  let lastActiveSentenceIndex = -1;     // предложения
-  let markPtr = 0;
+  let lastActiveWordIndex = -1;
   let lastScrollAt = 0;
-
   let playToken = 0;
 
   const audioCache = new Map();
   const inFlight = new Map();
   const controllers = new Map();
-
-  // Для измерения отставания подсветки
-  let lastTimeupdateLogAt = 0;
-  let lastHighlightLogAt = 0;
-  let driftAvg = 0;
-  let driftN = 0;
-
-  // requestAnimationFrame loop
   let rafId = 0;
-  // ========== DOM ==========
+  let reqSeq = 0;
+
+  // ===== DOM =====
   const $ = (id) => document.getElementById(id);
 
-  const textInput = $('text');
-  const fileInput = $('fileInput');
-  const startBtn = $('startBtn');
+  const textInput    = $('text');
+  const fileInput    = $('fileInput');
+  const startBtn     = $('startBtn');
   const inputSection = $('inputSection');
 
-  const statusEl = $('status');
-  const playerUI = $('playerUI');
-  const player = $('audioPlayer');
+  const statusEl   = $('status');
+  const playerUI   = $('playerUI');
+  const player     = $('audioPlayer');
+  const bookDisplay= $('bookDisplay');
+  const chapterList= $('chapterList');
+  const voiceSelect= $('voice');
 
-  const bookDisplay = $('bookDisplay');
-  const chapterList = $('chapterList');
-  const voiceSelect = $('voice');
-
-  const chunkInfoEl = $('chunkInfo');
+  const chunkInfoEl   = $('chunkInfo');
   const preloadInfoEl = $('preloadInfo');
-  const progressEl = $('progress');
+  const progressEl    = $('progress');
 
   const prevBtn = $('prevBtn');
   const nextBtn = $('nextBtn');
   const stopBtn = $('stopBtn');
 
-  // ========== ЛОГГЕР ==========
-  function ts() {
-    const d = new Date();
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const ss = String(d.getSeconds()).padStart(2, '0');
-    const ms = String(d.getMilliseconds()).padStart(3, '0');
-    return `${hh}:${mm}:${ss}.${ms}`;
-  }
+  // ===== ЛОГ =====
+  function log(...args)   { if (DEBUG) console.log(...args); }
+  function warn(...args)  { if (DEBUG) console.warn(...args); }
+  function err(...args)   { if (DEBUG) console.error(...args); }
 
-  function log(...args) { if (DEBUG) console.log(`[${ts()}]`, ...args); }
-  function warn(...args) { if (DEBUG) console.warn(`[${ts()}]`, ...args); }
-  function err(...args) { if (DEBUG) console.error(`[${ts()}]`, ...args); }
-
-  function group(title, fn) {
-    if (!DEBUG) return fn?.();
-    console.groupCollapsed(`[${ts()}] ${title}`);
-    try { fn?.(); } finally { console.groupEnd(); }
-  }
-
-  // ========== УТИЛИТЫ ==========
+  // ===== УТИЛИТЫ =====
   function setStatus(text, kind) {
     statusEl.textContent = text || '';
     statusEl.className = 'status-message' + (kind ? ' ' + kind : '');
-    log('UI status:', { text, kind, isPlaying, currentChunkIndex, playToken });
   }
 
-  function abortAllRequests(reason = 'abortAllRequests') {
-    group(`NET abortAllRequests (${reason})`, () => {
-      log('controllers.size:', controllers.size, 'inFlight.size:', inFlight.size);
-    });
+  function abortAllRequests() {
     controllers.forEach(c => c.abort());
     controllers.clear();
     inFlight.clear();
@@ -474,27 +411,17 @@
   function clearCaches() {
     audioCache.clear();
     updateCacheInfo();
-    log('CACHE cleared');
   }
 
   function resetHighlightState() {
-    lastActiveIndex = -1;
-    lastActiveSentenceIndex = -1;
-    markPtr = 0;
+    lastActiveWordIndex = -1;
     lastScrollAt = 0;
-
-    lastTimeupdateLogAt = 0;
-    lastHighlightLogAt = 0;
-    driftAvg = 0;
-    driftN = 0;
-
-    log('HL resetHighlightState');
   }
 
   function updateProgressUI() {
     chunkInfoEl.textContent = `Фрагмент ${chunks.length ? (currentChunkIndex + 1) : 0} из ${chunks.length}`;
     const percent = chunks.length ? (((currentChunkIndex + 1) / chunks.length) * 100) : 0;
-    progressEl.style.width = percent + "%";
+    progressEl.style.width = percent + '%';
   }
 
   function updateCacheInfo() {
@@ -504,7 +431,7 @@
   function splitText(text) {
     const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
     const result = [];
-    let currentChunk = "";
+    let currentChunk = '';
 
     for (const s of sentences) {
       if (currentChunk.length + s.length > CHUNK_SIZE) {
@@ -514,7 +441,6 @@
         currentChunk += s;
       }
     }
-
     if (currentChunk.trim()) result.push(currentChunk.trim());
     return result;
   }
@@ -533,11 +459,11 @@
     });
 
     chapterList.appendChild(frag);
-    log('NAV renderNavigation:', { chunks: chunks.length });
   }
 
   function setNavActive(index) {
-    document.querySelectorAll('.chapter-item.active').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.chapter-item.active')
+      .forEach(el => el.classList.remove('active'));
     const navItem = document.getElementById(`nav-item-${index}`);
     if (navItem) {
       navItem.classList.add('active');
@@ -560,7 +486,6 @@
     if (!Array.isArray(marks) || !marks.length) return { kind: 'none', div: 1 };
     const max = marks[marks.length - 1]?.offset;
     if (!Number.isFinite(max)) return { kind: 'unknown', div: 1 };
-
     if (max > 1e6) return { kind: 'ticks_100ns?', div: 1e7 };
     if (max > 1e3) return { kind: 'ms?', div: 1e3 };
     return { kind: 'seconds?', div: 1 };
@@ -570,37 +495,11 @@
     const marks = Array.isArray(data?.marks) ? data.marks : [];
     if (!marks.length) return data;
 
-    const { kind, div } = inferOffsetUnit(marks);
+    const { div } = inferOffsetUnit(marks);
+    if (div === 1) return data;
 
-    if (div === 1) {
-      data._offsetUnit = kind;
-      return data;
-    }
-
-    data._offsetUnit = kind;
     data.marks = marks.map(m => ({ ...m, offset: m.offset / div }));
     return data;
-  }
-
-  function segmentSentences(text) {
-    // Prefer Intl.Segmenter when available
-    if (window.Intl && Intl.Segmenter) {
-      const seg = new Intl.Segmenter('ru', { granularity: 'sentence' });
-      return Array.from(seg.segment(text)).map(x => ({
-        start: x.index,
-        end: x.index + x.segment.length,
-        text: x.segment
-      }));
-    }
-
-    // Fallback regex
-    const re = /[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g;
-    const out = [];
-    let m;
-    while ((m = re.exec(text)) !== null) {
-      out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
-    }
-    return out.length ? out : [{ start: 0, end: text.length, text }];
   }
 
   function ensureVisible(el) {
@@ -611,71 +510,21 @@
     }
   }
 
-  // ========== РЕНДЕР ТЕКСТА (ПРЕДЛОЖЕНИЯ) ==========
-  function renderInteractiveText(text, marks) {
-    bookDisplay.innerHTML = '';
-    currentWordSpans = [];
-
-    currentSentenceSpans = [];
-    markToSentence = [];
-    lastActiveSentenceIndex = -1;
-
-    const sentences = segmentSentences(text);
-    const frag = document.createDocumentFragment();
-
-    for (let si = 0; si < sentences.length; si++) {
-      const span = document.createElement('span');
-      span.className = 's';
-      span.dataset.s = String(si);
-      span.textContent = sentences[si].text;
-      frag.appendChild(span);
-      currentSentenceSpans.push(span);
-    }
-
-    bookDisplay.appendChild(frag);
-    bookDisplay.scrollTop = 0;
-
-    if (Array.isArray(marks) && marks.length) {
-      let si = 0;
-      for (let i = 0; i < marks.length; i++) {
-        const off = marks[i].text_offset;
-        while (si + 1 < sentences.length && off >= sentences[si].end) si++;
-        markToSentence[i] = si;
-      }
-    }
-  }
-
-  // ========== СЕТЬ ==========
-  let reqSeq = 0;
-
+  // ===== СЕТЬ =====
   async function fetchAudio(index) {
     if (index < 0 || index >= chunks.length) return null;
 
-    if (audioCache.has(index)) {
-      log('NET fetchAudio cache HIT:', { index });
-      return audioCache.get(index);
-    }
-
-    if (inFlight.has(index)) {
-      log('NET fetchAudio inFlight HIT:', { index });
-      return inFlight.get(index);
-    }
+    if (audioCache.has(index)) return audioCache.get(index);
+    if (inFlight.has(index))  return inFlight.get(index);
 
     const reqId = ++reqSeq;
     const voice = voiceSelect.value;
-    const text = chunks[index] || '';
-    const bodyPreview = text.slice(0, 80).replace(/\s+/g, ' ');
+    const text  = chunks[index] || '';
 
     const promise = (async () => {
       controllers.get(index)?.abort();
       const controller = new AbortController();
       controllers.set(index, controller);
-
-      group(`NET /speak START #${reqId} (index=${index + 1})`, () => {
-        log('params:', { index, voice, textLen: text.length, preview: bodyPreview });
-      });
-
-      const t0 = performance.now();
 
       try {
         const response = await fetch('/speak', {
@@ -685,44 +534,16 @@
           body: JSON.stringify({ text, voice })
         });
 
-        const t1 = performance.now();
-        log(`NET /speak HTTP #${reqId}:`, { ok: response.ok, status: response.status, ms: Math.round(t1 - t0) });
-
         if (!response.ok) throw new Error('Ошибка сети или сервера');
 
-        const t2 = performance.now();
         let data = await response.json();
-        const t3 = performance.now();
-
         data = normalizeMarksToSeconds(data);
 
         audioCache.set(index, data);
         updateCacheInfo();
-
-        group(`NET /speak OK #${reqId} (index=${index + 1})`, () => {
-          const marks = Array.isArray(data.marks) ? data.marks : [];
-          log('timing:', {
-            fetchMs: Math.round(t1 - t0),
-            jsonMs: Math.round(t3 - t2),
-            totalMs: Math.round(t3 - t0)
-          });
-          log('response:', {
-            hasAudioUrl: !!data.audio_url,
-            audioUrl: data.audio_url,
-            marksCount: marks.length,
-            offsetUnit: data._offsetUnit || 'n/a',
-            m0: marks[0],
-            m1: marks[1],
-            last: marks[marks.length - 1]
-          });
-        });
-
         return data;
       } catch (e) {
-        if (e && e.name === 'AbortError') {
-          warn(`NET /speak ABORTED #${reqId} (index=${index + 1})`);
-          return null;
-        }
+        if (e && e.name === 'AbortError') return null;
         err(`NET /speak FAIL #${reqId} (index=${index + 1})`, e);
         throw e;
       } finally {
@@ -731,71 +552,102 @@
     })();
 
     inFlight.set(index, promise);
-
     try {
       return await promise;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
 
-  // ========== ПРОИГРЫВАНИЕ ==========
+  // ===== РЕНДЕР ТЕКСТА (ПО СЛОВАМ) =====
+  function renderInteractiveText(text) {
+    bookDisplay.innerHTML = '';
+    currentWordSpans = [];
+    lastActiveWordIndex = -1;
+
+    const words = text.split(/\s+/);
+    const frag = document.createDocumentFragment();
+
+    words.forEach((w, wi) => {
+      const span = document.createElement('span');
+      span.className = 'w';
+      span.dataset.w = wi;
+      span.textContent = w + ' ';
+      frag.appendChild(span);
+      currentWordSpans.push(span);
+    });
+
+    bookDisplay.appendChild(frag);
+    bookDisplay.scrollTop = 0;
+  }
+
+  // ===== FRAME LOOP (ПОДСВЕТКА) =====
+  function highlightFrame() {
+    if (!isPlaying || player.paused || player.ended) {
+      rafId = 0;
+      return;
+    }
+
+    const t = player.currentTime;
+    let idx = -1;
+
+    if (currentMarks.length) {
+      idx = findMarkIndexByTime(t);
+    } else if (currentWordSpans.length && player.duration > 0) {
+      idx = Math.floor((t / player.duration) * currentWordSpans.length);
+      idx = Math.max(0, Math.min(idx, currentWordSpans.length - 1));
+    }
+
+    if (idx !== -1 && idx !== lastActiveWordIndex) {
+      if (lastActiveWordIndex !== -1) {
+        currentWordSpans[lastActiveWordIndex]?.classList.remove('active');
+      }
+      lastActiveWordIndex = idx;
+      const el = currentWordSpans[idx];
+      if (el) {
+        const now = performance.now();
+        if (now - lastScrollAt > SCROLL_THROTTLE_MS) {
+          ensureVisible(el);
+          lastScrollAt = now;
+        }
+        el.classList.add('active');
+      }
+    }
+
+    rafId = requestAnimationFrame(highlightFrame);
+  }
+
+  // ===== ПРОИГРЫВАНИЕ =====
   async function playChunk(index) {
     if (!isPlaying) return;
-
     if (index < 0 || index >= chunks.length) {
       if (index >= chunks.length) setStatus('Книга прочитана до конца!', 'success');
       return;
     }
 
     const myToken = ++playToken;
-
-    group(`PLAY playChunk START (index=${index + 1}, token=${myToken})`, () => {
-      log('state before:', {
-        isPlaying,
-        currentChunkIndex,
-        chunks: chunks.length,
-        cacheSize: audioCache.size,
-        inFlight: inFlight.size
-      });
-    });
-
     currentChunkIndex = index;
     resetHighlightState();
     updateProgressUI();
     setNavActive(index);
-
     setStatus(`Генерация фрагмента ${index + 1}...`, '');
 
     const data = audioCache.get(index) || await fetchAudio(index);
-
-    if (myToken !== playToken) {
-      warn('PLAY playChunk stale token -> exit', { myToken, playToken, index });
-      return;
-    }
-
+    if (myToken !== playToken) return;
     if (!data) {
       setStatus(`Не удалось загрузить часть ${index + 1}.`, 'error');
       return;
     }
 
     currentMarks = Array.isArray(data.marks) ? data.marks : [];
-    renderInteractiveText(chunks[index], currentMarks);
+    renderInteractiveText(chunks[index]);
 
     player.src = data.audio_url;
-
-    group(`PLAY set src (index=${index + 1})`, () => {
-      log('audio_url:', data.audio_url);
-      log('marks:', { count: currentMarks.length, offsetUnit: data._offsetUnit || 'n/a' });
-    });
-
     setStatus(`Читаю фрагмент ${index + 1}...`, '');
 
     try {
       await player.play();
-      log('AUDIO play() resolved', { index: index + 1 });
-    } catch (e) {
-      warn('AUDIO play() rejected', e);
+    } catch {
       setStatus('Автозапуск заблокирован браузером. Нажмите Play.', '');
     }
 
@@ -809,28 +661,24 @@
   function prevChunk() { playChunk(currentChunkIndex - 1); }
 
   function stopReading() {
-    group('STOP stopReading()', () => {
-      log('state:', { isPlaying, playToken, currentChunkIndex, cacheSize: audioCache.size });
-    });
-
     isPlaying = false;
     playToken++;
 
     player.pause();
-    player.src = "";
+    player.src = '';
 
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
+
     playerUI.classList.remove('active');
     inputSection.style.display = 'block';
 
-    abortAllRequests('stopReading');
+    abortAllRequests();
     clearCaches();
-
     setStatus('Чтение остановлено.', '');
   }
 
-  // ========== ЗАГРУЗКА ФАЙЛА ==========
+  // ===== ЗАГРУЗКА ФАЙЛА =====
   async function uploadFile(input) {
     if (!input.files || !input.files[0]) return;
 
@@ -838,33 +686,17 @@
     const formData = new FormData();
     formData.append('file', file);
 
-    group('FILE uploadFile()', () => {
-      log('file:', { name: file.name, size: file.size, type: file.type });
-    });
-
     setStatus('Извлечение текста, подождите...', '');
     textInput.disabled = true;
     startBtn.disabled = true;
 
-    const t0 = performance.now();
-
     try {
       const res = await fetch('/extract_text', { method: 'POST', body: formData });
-      const t1 = performance.now();
       const data = await res.json();
-      const t2 = performance.now();
-
-      group('FILE /extract_text response', () => {
-        log('timing:', { fetchMs: Math.round(t1 - t0), jsonMs: Math.round(t2 - t1), totalMs: Math.round(t2 - t0) });
-        log('http:', { ok: res.ok, status: res.status });
-        log('keys:', Object.keys(data || {}));
-      });
-
       if (!res.ok) throw new Error(data.error || 'Ошибка обработки файла');
 
       textInput.value = data.text || '';
       setStatus(`Успешно загружено! Символов: ${textInput.value.length}`, 'success');
-
       setTimeout(() => { if (!isPlaying) setStatus('', ''); }, 3000);
     } catch (e) {
       err('FILE upload error', e);
@@ -876,7 +708,7 @@
     }
   }
 
-  // ========== СТАРТ ==========
+  // ===== СТАРТ =====
   async function startReading() {
     const text = textInput.value.trim();
     if (!text) {
@@ -888,12 +720,8 @@
     chunks = splitText(text);
     if (!chunks.length) return;
 
-    group('START startReading()', () => {
-      log('input:', { textLen: text.length, chunks: chunks.length, CHUNK_SIZE });
-    });
-
     playToken++;
-    abortAllRequests('startReading reset');
+    abortAllRequests();
     clearCaches();
 
     currentChunkIndex = 0;
@@ -911,7 +739,7 @@
     await playChunk(0);
   }
 
-  // ========== UI события ==========
+  // ===== UI события =====
   startBtn.addEventListener('click', startReading);
   prevBtn.addEventListener('click', prevChunk);
   nextBtn.addEventListener('click', nextChunk);
@@ -929,66 +757,10 @@
     const item = e.target.closest('.chapter-item');
     if (!item) return;
     const idx = Number(item.dataset.idx);
-    log('NAV click:', { idx });
     if (Number.isFinite(idx)) playChunk(idx);
   });
 
-  // Клик по предложению: перейти к его началу
-  bookDisplay.addEventListener('click', (e) => {
-    const el = e.target.closest('.s');
-    if (!el) return;
-
-    const sidx = Number(el.dataset.s);
-    if (!Number.isFinite(sidx)) return;
-
-    log('SENT click:', { sidx, hasMarks: !!currentMarks.length, t: player.currentTime, dur: player.duration });
-
-    if (currentMarks.length && markToSentence.length) {
-      const first = markToSentence.findIndex(v => v === sidx);
-      if (first !== -1) {
-        const t0 = currentMarks[first]?.offset;
-        if (typeof t0 === 'number') {
-          player.currentTime = t0;
-          player.play().catch(() => {});
-        }
-      }
-      return;
-    }
-
-    if (player.duration > 0 && currentSentenceSpans.length) {
-      player.currentTime = player.duration * (sidx / currentSentenceSpans.length);
-      player.play().catch(() => {});
-    }
-  });
-
-  voiceSelect.addEventListener('change', () => {
-    log('VOICE changed:', { voice: voiceSelect.value, isPlaying, currentChunkIndex });
-    if (!isPlaying || !chunks.length) return;
-
-    playToken++;
-    abortAllRequests('voice change');
-    clearCaches();
-    resetHighlightState();
-
-    setStatus('Голос изменён — перегенерирую текущий фрагмент...', '');
-    playChunk(currentChunkIndex);
-  });
-
-  // ========== Media события ==========
-  function logMedia(ev) {
-    log(`AUDIO ${ev}:`, {
-      t: Number.isFinite(player.currentTime) ? player.currentTime.toFixed(3) : player.currentTime,
-      dur: Number.isFinite(player.duration) ? player.duration.toFixed(3) : player.duration,
-      readyState: player.readyState,
-      networkState: player.networkState,
-      paused: player.paused
-    });
-  }
-
-  ['loadedmetadata','canplay','canplaythrough','playing','pause','ended','seeking','seeked','stalled','waiting','error'].forEach(ev => {
-    player.addEventListener(ev, () => logMedia(ev));
-  });
-
+  // ===== Media события (драйвим RAF) =====
   player.addEventListener('playing', () => {
     if (!rafId) rafId = requestAnimationFrame(highlightFrame);
   });
@@ -1004,92 +776,23 @@
     if (isPlaying) playChunk(currentChunkIndex + 1);
   });
 
-  function highlightFrame() {
-    if (!isPlaying || player.paused || player.ended) {
-      rafId = 0;
-      return;
-    }
-
-    const t = player.currentTime;
-    const tt = t + adaptiveLead;
-
-
-    let wordIdx = -1;
-
-    if (currentMarks.length) {
-      if (markPtr < currentMarks.length && tt < currentMarks[markPtr]?.offset) {
-        markPtr = Math.max(0, findMarkIndexByTime(tt));
-      } else {
-        while (
-          markPtr + 1 < currentMarks.length &&
-          tt >= currentMarks[markPtr + 1].offset
-        ) {
-          markPtr++;
-        }
-      }
-      wordIdx = Math.min(markPtr, currentMarks.length - 1);
-      // --- автокоррекция рассинхрона ---
-      const m = currentMarks[wordIdx];
-      if (m && typeof m.offset === 'number') {
-        const drift = tt - m.offset;   // + = подсветка позже звука
-        driftN++;
-        driftAvg += (drift - driftAvg) / driftN;
-
-        adaptiveLead -= drift * 0.12;  // коэффициент подобран
-        adaptiveLead = Math.max(-0.4, Math.min(0.6, adaptiveLead));
-      }
-    }
-
-    let sidx = -1;
-    if (currentMarks.length) {
-      if (wordIdx !== -1) {
-        sidx = markToSentence[wordIdx] ?? -1;
-      }
-    } else if (currentSentenceSpans.length && player.duration > 0) {
-      sidx = Math.floor((tt / player.duration) * currentSentenceSpans.length);
-      sidx = Math.max(0, Math.min(sidx, currentSentenceSpans.length - 1));
-    }
-
-    if (sidx !== -1 && sidx !== lastActiveSentenceIndex) {
-      if (lastActiveSentenceIndex !== -1) {
-        currentSentenceSpans[lastActiveSentenceIndex]?.classList.remove('active');
-      }
-
-      lastActiveSentenceIndex = sidx;
-      const el = currentSentenceSpans[sidx];
-      if (el) {
-        el.classList.add('active');
-
-        const now = performance.now();
-        if (now - lastScrollAt > SCROLL_THROTTLE_MS) {
-          ensureVisible(el);
-          lastScrollAt = now;
-        }
-      }
-    }
-
-    rafId = requestAnimationFrame(highlightFrame);
-  }
-
-  // ========== Экспорт ==========
+  // экспорт (по желанию)
   window.startReading = startReading;
-  window.stopReading = stopReading;
-  window.nextChunk = nextChunk;
-  window.prevChunk = prevChunk;
-  window.playChunk = playChunk;
-  window.uploadFile = uploadFile;
+  window.stopReading  = stopReading;
+  window.nextChunk    = nextChunk;
+  window.prevChunk    = prevChunk;
+  window.playChunk    = playChunk;
+  window.uploadFile   = uploadFile;
 
   window._dbg = {
-    get chunks() { return chunks; },
+    get chunks()       { return chunks; },
     get currentMarks() { return currentMarks; },
-    get audioCache() { return audioCache; },
-    get inFlight() { return inFlight; },
-    get controllers() { return controllers; },
+    get audioCache()   { return audioCache; },
+    get inFlight()     { return inFlight; },
+    get controllers()  { return controllers; },
     player,
     inferOffsetUnit,
   };
-
-  log('READY debug helpers: window._dbg (chunks/currentMarks/audioCache/...)');
 </script>
 
 </body>
