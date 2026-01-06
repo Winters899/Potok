@@ -1,767 +1,871 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Читалка (Smart Stream)</title>
-    <style>
-        :root {
-            --primary: #4f46e5;
-            --primary-hover: #4338ca;
-            --bg: #f3f4f6;
-            --card-bg: #ffffff;
-            --text: #1f2937;
-            --text-light: #6b7280;
-            --border: #e5e7eb;
-            --error: #ef4444;
-            --success: #10b981;
-            --highlight-bg: #fef08a;
-            --highlight-border: #f59e0b;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Читалка (Smart Stream)</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --bg: #f3f4f6;
+      --card-bg: #ffffff;
+      --text: #1f2937;
+      --text-light: #6b7280;
+      --border: #e5e7eb;
+      --error: #ef4444;
+      --success: #10b981;
+      --highlight-bg: #fef08a;
+      --highlight-border: #f59e0b;
+    }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
 
-        .container {
-            background-color: var(--card-bg);
-            padding: 2rem;
-            border-radius: 1rem;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            width: 100%;
-            max-width: 700px;
-            transition: all 0.3s ease;
-        }
+    .container {
+      background-color: var(--card-bg);
+      padding: 2rem;
+      border-radius: 1rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      width: 100%;
+      max-width: 700px;
+      transition: all 0.3s ease;
+    }
 
-        header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
 
-        h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin: 0 0 0.5rem 0;
-            color: var(--text);
-        }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 0 0 0.5rem 0;
+      color: var(--text);
+    }
 
-        p.subtitle {
-            color: var(--text-light);
-            font-size: 0.95rem;
-            margin: 0;
-            line-height: 1.5;
-        }
+    p.subtitle {
+      color: var(--text-light);
+      font-size: 0.95rem;
+      margin: 0;
+      line-height: 1.5;
+    }
 
-        .control-group {
-            margin-bottom: 1.5rem;
-        }
+    .control-group {
+      margin-bottom: 1.5rem;
+    }
 
-        label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            font-size: 0.9rem;
-            color: var(--text);
-        }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      color: var(--text);
+    }
 
-        /* Поле ввода текста */
-        textarea {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid var(--border);
-            border-radius: 0.5rem;
-            resize: vertical;
-            min-height: 150px;
-            font-family: inherit;
-            font-size: 1rem;
-            box-sizing: border-box;
-            transition: border-color 0.2s;
-            line-height: 1.5;
-        }
+    textarea {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      resize: vertical;
+      min-height: 150px;
+      font-family: inherit;
+      font-size: 1rem;
+      box-sizing: border-box;
+      transition: border-color 0.2s;
+      line-height: 1.5;
+    }
 
-        textarea:focus, select:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgb(1, 241, 241);
-        }
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgb(1, 241, 241);
+    }
 
-        textarea:disabled {
-            background-color: #f9fafb;
-            color: #9ca3af;
-        }
+    textarea:disabled {
+      background-color: #f9fafb;
+      color: #9ca3af;
+    }
 
-        select {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid var(--border);
-            border-radius: 0.5rem;
-            background-color: white;
-            font-size: 1rem;
-            cursor: pointer;
-            box-sizing: border-box;
-        }
+    select {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      background-color: white;
+      font-size: 1rem;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
 
-        /* Кнопки */
-        button {
-            width: 100%;
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            padding: 0.875rem;
-            font-size: 1rem;
-            font-weight: 600;
-            border-radius: 0.5rem;
-            cursor: pointer;
-            transition: background-color 0.2s, transform 0.1s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-        }
+    button {
+      width: 100%;
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 0.875rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: background-color 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
 
-        button:hover:not(:disabled) {
-            background-color: var(--primary-hover);
-        }
+    button:hover:not(:disabled) {
+      background-color: var(--primary-hover);
+    }
 
-        button:active:not(:disabled) {
-            transform: translateY(1px);
-        }
+    button:active:not(:disabled) {
+      transform: translateY(1px);
+    }
 
-        button:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
-        }
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
 
-        /* Кастомная кнопка загрузки файла */
-        .file-input { display: none; }
-        
-        .file-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-        }
+    .file-input { display: none; }
 
-        .file-label {
-            cursor: pointer;
-            color: var(--primary);
-            font-size: 0.9rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            transition: background 0.2s;
-            background: #eef2ff;
-            margin: 0; 
-        }
-        
-        .file-label:hover {
-            background: #e0e7ff;
-        }
+    .file-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
 
-        /* Интерфейс Плеера */
-        .player-ui {
-            margin-top: 20px;
-            padding: 20px;
-            background: #f8fafc;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-            display: none;
-            animation: fadeIn 0.4s ease-out;
-        }
+    .file-label {
+      cursor: pointer;
+      color: var(--primary);
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      transition: background 0.2s;
+      background: #eef2ff;
+      margin: 0;
+      user-select: none;
+    }
 
-        .player-ui.active {
-            display: block;
-        }
+    .file-label:hover {
+      background: #e0e7ff;
+    }
 
-        .info {
-            font-size: 0.9rem;
-            color: var(--text-light);
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-feature-settings: "tnum";
-            font-variant-numeric: tabular-nums;
-        }
+    .player-ui {
+      margin-top: 20px;
+      padding: 20px;
+      background: #f8fafc;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      display: none;
+      animation: fadeIn 0.4s ease-out;
+    }
 
-        /* Стили для "Книжного" отображения */
-        .book-view {
-            background: #fff;
-            padding: 2rem;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            margin-bottom: 1rem;
-            font-size: 1.15rem;
-            line-height: 1.6;
-            min-height: 200px;
-            white-space: pre-wrap;
-            position: relative;
-        }
+    .player-ui.active {
+      display: block;
+    }
 
-        /* Интерактивные слова */
-        .w { 
-            cursor: pointer; 
-            border-radius: 3px; 
-            transition: background 0.1s; 
-            padding: 0 1px; 
-            display: inline-block;
-        }
-        .w:hover { 
-            background: #e0e7ff; 
-        }
-        /* Активное слово - ярко выделяем */
-        .w.active { 
-            background-color: #ffeb3b; /* Ярко-желтый */
-            outline: 2px solid #f59e0b; /* Оранжевая рамка */
-            border-radius: 4px;
-            color: #000;
-            font-weight: bold;
-            z-index: 10;
-            position: relative;
-        }
+    .info {
+      font-size: 0.9rem;
+      color: var(--text-light);
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-feature-settings: "tnum";
+      font-variant-numeric: tabular-nums;
+    }
 
-        /* Стили для навигации (Список фрагментов) */
-        .chapter-list {
-            max-height: 150px;
-            overflow-y: auto;
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            margin-top: 10px;
-            padding: 5px;
-        }
-        .chapter-item {
-            padding: 8px 10px;
-            font-size: 0.85rem;
-            border-bottom: 1px solid #f1f5f9;
-            cursor: pointer;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            color: var(--text-light);
-            border-radius: 4px;
-        }
-        .chapter-item:hover { background: #f8fafc; color: var(--primary); }
-        .chapter-item.active {
-            background: #e0e7ff;
-            color: var(--primary);
-            font-weight: 600;
-        }
+    .book-view {
+      background: #fff;
+      padding: 2rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: 1.15rem;
+      line-height: 1.6;
+      min-height: 200px;
+      white-space: pre-wrap;
+      position: relative;
 
-        .progress-bar {
-            height: 8px;
-            background: #e2e8f0;
-            border-radius: 4px;
-            margin: 15px 0;
-            overflow: hidden;
-            position: relative;
-        }
+      /* Для устойчивой автопрокрутки внутри блока, без скачков страницы */
+      max-height: 360px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
 
-        .progress-fill {
-            height: 100%;
-            background: var(--primary);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
+    .w {
+      cursor: pointer;
+      border-radius: 3px;
+      transition: background 0.1s;
+      padding: 0 1px;
+      display: inline-block;
+    }
 
-        audio {
-            width: 100%;
-            height: 40px;
-            margin-bottom: 15px;
-            border-radius: 8px;
-        }
+    .w:hover {
+      background: #e0e7ff;
+    }
 
-        .controls {
-            display: flex;
-            gap: 12px;
-        }
+    .w.active {
+      background-color: #ffeb3b;
+      outline: 2px solid #f59e0b;
+      border-radius: 4px;
+      color: #000;
+      font-weight: bold;
+      z-index: 10;
+      position: relative;
+    }
 
-        .controls button {
-            padding: 0.6rem;
-            font-size: 0.9rem;
-        }
+    .chapter-list {
+      max-height: 150px;
+      overflow-y: auto;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin-top: 10px;
+      padding: 5px;
+    }
 
-        .btn-secondary {
-            background-color: #64748b;
-        }
-        .btn-secondary:hover:not(:disabled) {
-            background-color: #475569;
-        }
+    .chapter-item {
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      border-bottom: 1px solid #f1f5f9;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text-light);
+      border-radius: 4px;
+      user-select: none;
+    }
 
-        .btn-danger {
-            background-color: var(--error);
-        }
-        .btn-danger:hover:not(:disabled) {
-            background-color: #dc2626;
-        }
+    .chapter-item:hover { background: #f8fafc; color: var(--primary); }
 
-        /* Статусы */
-        .status-message {
-            margin-top: 1rem;
-            text-align: center;
-            font-size: 0.9rem;
-            min-height: 1.4em;
-            color: var(--primary);
-            font-weight: 500;
-        }
+    .chapter-item.active {
+      background: #e0e7ff;
+      color: var(--primary);
+      font-weight: 600;
+    }
 
-        .status-message.error { color: var(--error); }
-        .status-message.success { color: var(--success); }
-        
-        .hint {
-            font-size: 0.8rem;
-            color: var(--text-light);
-            text-align: right;
-            margin-top: 0.4rem;
-        }
+    .progress-bar {
+      height: 8px;
+      background: #e2e8f0;
+      border-radius: 4px;
+      margin: 15px 0;
+      overflow: hidden;
+      position: relative;
+    }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    audio {
+      width: 100%;
+      height: 40px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+    }
+
+    .controls button {
+      padding: 0.6rem;
+      font-size: 0.9rem;
+    }
+
+    .btn-secondary { background-color: #64748b; }
+    .btn-secondary:hover:not(:disabled) { background-color: #475569; }
+
+    .btn-danger { background-color: var(--error); }
+    .btn-danger:hover:not(:disabled) { background-color: #dc2626; }
+
+    .status-message {
+      margin-top: 1rem;
+      text-align: center;
+      font-size: 0.9rem;
+      min-height: 1.4em;
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    .status-message.error { color: var(--error); }
+    .status-message.success { color: var(--success); }
+
+    .hint {
+      font-size: 0.8rem;
+      color: var(--text-light);
+      text-align: right;
+      margin-top: 0.4rem;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
 </head>
 <body>
 
 <div class="container">
-    <header>
-        <h1>🔮 Нейро-Читалка</h1>
-        <p class="subtitle">Потоковое чтение книг с точной синхронизацией</p>
-    </header>
+  <header>
+    <h1>🔮 Нейро-Читалка</h1>
+    <p class="subtitle">Потоковое чтение книг с точной синхронизацией</p>
+  </header>
 
-    <!-- Блок ввода -->
-    <div id="inputSection">
-        <div class="control-group">
-            <div class="file-header">
-                <label for="text" style="margin:0;">Текст для чтения</label>
-                <label class="file-label">
-                    <span>📂 Открыть книгу (PDF/FB2)</span>
-                    <input type="file" id="fileInput" class="file-input" accept=".pdf,.fb2" onchange="uploadFile(this)">
-                </label>
-            </div>
-            <textarea id="text" placeholder="Вставьте длинный текст, главу из книги или просто загрузите файл..."></textarea>
-            <div class="hint">Ctrl + Enter для быстрого запуска</div>
-        </div>
+  <div id="inputSection">
+    <div class="control-group">
+      <div class="file-header">
+        <label for="text" style="margin:0;">Текст для чтения</label>
+        <label class="file-label">
+          <span>📂 Открыть книгу (PDF/FB2)</span>
+          <input type="file" id="fileInput" class="file-input" accept=".pdf,.fb2" />
+        </label>
+      </div>
 
-        <div class="control-group">
-            <label for="voice">Голос</label>
-            <select id="voice">
-                <option value="ru-RU-DmitryNeural" selected>🇷🇺 Дмитрий (Male)</option>
-                <option value="ru-RU-SvetlanaNeural">🇷🇺 Светлана (Female)</option>
-                <option value="en-US-GuyNeural">🇺🇸 Guy (English, Male)</option>
-                <option value="en-US-JennyNeural">🇺🇸 Jenny (English, Female)</option>
-            </select>
-        </div>
-
-        <button id="startBtn" onclick="startReading()">
-            <span>▶ Начать чтение</span>
-        </button>
+      <textarea id="text" placeholder="Вставьте длинный текст, главу из книги или просто загрузите файл..."></textarea>
+      <div class="hint">Ctrl + Enter для быстрого запуска</div>
     </div>
 
-    <!-- Блок статуса -->
-    <div id="status" class="status-message"></div>
-
-    <!-- UI Плеера -->
-    <div id="playerUI" class="player-ui">
-        <div class="info">
-            <span id="chunkInfo">Фрагмент 0 / 0</span>
-            <span id="preloadInfo" style="font-size:0.8rem; opacity:0.8;">Кэш: 0</span>
-        </div>
-        
-        <!-- Блок отображения текста (Страница) -->
-        <div id="bookDisplay" class="book-view"></div>
-        
-        <!-- Навигация по фрагментам -->
-        <div id="chapterList" class="chapter-list"></div>
-        
-        <div class="progress-bar">
-            <div id="progress" class="progress-fill"></div>
-        </div>
-        
-        <audio id="audioPlayer" controls></audio>
-        
-        <div class="controls">
-            <button class="btn-secondary" onclick="prevChunk()">⏮ Назад</button>
-            <button class="btn-danger" onclick="stopReading()">⏹ Стоп</button>
-            <button class="btn-secondary" onclick="nextChunk()">Вперед ⏭</button>
-        </div>
+    <div class="control-group">
+      <label for="voice">Голос</label>
+      <select id="voice">
+        <option value="ru-RU-DmitryNeural" selected>🇷🇺 Дмитрий (Male)</option>
+        <option value="ru-RU-SvetlanaNeural">🇷🇺 Светлана (Female)</option>
+        <option value="en-US-GuyNeural">🇺🇸 Guy (English, Male)</option>
+        <option value="en-US-JennyNeural">🇺🇸 Jenny (English, Female)</option>
+      </select>
     </div>
+
+    <button id="startBtn" type="button">
+      <span>▶ Начать чтение</span>
+    </button>
+  </div>
+
+  <div id="status" class="status-message"></div>
+
+  <div id="playerUI" class="player-ui">
+    <div class="info">
+      <span id="chunkInfo">Фрагмент 0 / 0</span>
+      <span id="preloadInfo" style="font-size:0.8rem; opacity:0.8;">Кэш: 0</span>
+    </div>
+
+    <div id="bookDisplay" class="book-view"></div>
+
+    <div id="chapterList" class="chapter-list"></div>
+
+    <div class="progress-bar">
+      <div id="progress" class="progress-fill"></div>
+    </div>
+
+    <audio id="audioPlayer" controls></audio>
+
+    <div class="controls">
+      <button id="prevBtn" class="btn-secondary" type="button">⏮ Назад</button>
+      <button id="stopBtn" class="btn-danger" type="button">⏹ Стоп</button>
+      <button id="nextBtn" class="btn-secondary" type="button">Вперед ⏭</button>
+    </div>
+  </div>
 </div>
 
 <script>
-    // === КОНФИГУРАЦИЯ ===
-    const CHUNK_SIZE = 1500; // Увеличил до 1500 — edge-tts хорошо справляется, меньше запросов
-    
-    // === СОСТОЯНИЕ ===
-    let chunks = [];
-    let currentMarks = []; // Тайминги (метки слов) для текущего куска
-    let currentWordSpans = []; // Массив всех <span class="w"> для текущего чанка (для fallback)
-    let currentChunkIndex = 0;
-    let audioCache = {}; // Кэш: { index: { audio_url: "...", marks: [...] } }
-    let isPlaying = false;
-    let lastActiveIndex = -1; // Индекс последнего активного слова
+  // ========== КОНФИГУРАЦИЯ ==========
+  const CHUNK_SIZE = 1500;
+  const PRELOAD_AHEAD = 1;          // сколько чанков заранее подгружать
+  const SCROLL_THROTTLE_MS = 250;   // троттлинг автопрокрутки активного слова
 
-    // === ЭЛЕМЕНТЫ DOM ===
-    const textInput = document.getElementById('text');
-    const startBtn = document.getElementById('startBtn');
-    const inputSection = document.getElementById('inputSection');
-    const statusEl = document.getElementById('status');
-    const playerUI = document.getElementById('playerUI');
-    const player = document.getElementById('audioPlayer');
-    const bookDisplay = document.getElementById('bookDisplay');
-    const chapterList = document.getElementById('chapterList');
+  // ========== СОСТОЯНИЕ ==========
+  let chunks = [];
+  let currentChunkIndex = 0;
 
-    // === ГОРЯЧИЕ КЛАВИШИ ===
-    textInput.addEventListener('keydown', (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            startReading();
-        }
+  // marks: [{ offset, word, text_offset, word_len, ... }]
+  let currentMarks = [];
+  let currentWordSpans = [];
+
+  let isPlaying = false;
+
+  // Подсветка
+  let lastActiveIndex = -1;
+  let markPtr = 0;
+  let lastScrollAt = 0;
+
+  // Устойчивость: токен, чтобы игнорировать "поздние" async ответы
+  let playToken = 0;
+
+  // Кэш/сеть
+  const audioCache = new Map();   // index -> data
+  const inFlight = new Map();     // index -> Promise
+  const controllers = new Map();  // index -> AbortController
+
+  // ========== DOM ==========
+  const $ = (id) => document.getElementById(id);
+
+  const textInput = $('text');
+  const fileInput = $('fileInput');
+  const startBtn = $('startBtn');
+  const inputSection = $('inputSection');
+
+  const statusEl = $('status');
+  const playerUI = $('playerUI');
+  const player = $('audioPlayer');
+
+  const bookDisplay = $('bookDisplay');
+  const chapterList = $('chapterList');
+
+  const voiceSelect = $('voice');
+
+  const chunkInfoEl = $('chunkInfo');
+  const preloadInfoEl = $('preloadInfo');
+  const progressEl = $('progress');
+
+  const prevBtn = $('prevBtn');
+  const nextBtn = $('nextBtn');
+  const stopBtn = $('stopBtn');
+
+  // ========== УТИЛИТЫ ==========
+  function setStatus(text, kind) {
+    statusEl.textContent = text || '';
+    statusEl.className = 'status-message' + (kind ? ' ' + kind : '');
+  }
+
+  function abortAllRequests() {
+    controllers.forEach(c => c.abort());
+    controllers.clear();
+    inFlight.clear();
+  }
+
+  function clearCaches() {
+    audioCache.clear();
+    updateCacheInfo();
+  }
+
+  function resetHighlightState() {
+    lastActiveIndex = -1;
+    markPtr = 0;
+    lastScrollAt = 0;
+  }
+
+  function updateProgressUI() {
+    chunkInfoEl.textContent = `Фрагмент ${chunks.length ? (currentChunkIndex + 1) : 0} из ${chunks.length}`;
+    const percent = chunks.length ? (((currentChunkIndex + 1) / chunks.length) * 100) : 0;
+    progressEl.style.width = percent + "%";
+  }
+
+  function updateCacheInfo() {
+    preloadInfoEl.textContent = `Кэш: ${audioCache.size}`;
+  }
+
+  function splitText(text) {
+    const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
+    const result = [];
+    let currentChunk = "";
+
+    for (const s of sentences) {
+      if (currentChunk.length + s.length > CHUNK_SIZE) {
+        if (currentChunk.trim()) result.push(currentChunk.trim());
+        currentChunk = s;
+      } else {
+        currentChunk += s;
+      }
+    }
+
+    if (currentChunk.trim()) result.push(currentChunk.trim());
+    return result;
+  }
+
+  function renderNavigation() {
+    chapterList.innerHTML = '';
+    const frag = document.createDocumentFragment();
+
+    chunks.forEach((chunk, idx) => {
+      const div = document.createElement('div');
+      div.className = 'chapter-item';
+      div.dataset.idx = String(idx);
+      div.id = `nav-item-${idx}`;
+      div.textContent = `${idx + 1}. ${chunk.substring(0, 60)}...`;
+      frag.appendChild(div);
     });
 
-    // === ФУНКЦИИ ===
+    chapterList.appendChild(frag);
+  }
 
-    // 1. Разбивка текста на предложения
-    function splitText(text) {
-        const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
-        const result = [];
-        let currentChunk = "";
+  function setNavActive(index) {
+    document.querySelectorAll('.chapter-item.active').forEach(el => el.classList.remove('active'));
+    const navItem = document.getElementById(`nav-item-${index}`);
+    if (navItem) {
+      navItem.classList.add('active');
+      navItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
 
-        sentences.forEach(s => {
-            if (currentChunk.length + s.length > CHUNK_SIZE) {
-                if (currentChunk.trim()) result.push(currentChunk.trim());
-                currentChunk = s;
-            } else {
-                currentChunk += s;
-            }
+  // Бинарный поиск: последний индекс i, где marks[i].offset <= t
+  function findMarkIndexByTime(t) {
+    const a = currentMarks;
+    let lo = 0, hi = a.length - 1, ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (a[mid].offset <= t) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  // ========== РЕНДЕР ТЕКСТА ==========
+  function renderInteractiveText(text, marks) {
+    bookDisplay.innerHTML = '';
+    currentWordSpans = [];
+
+    const frag = document.createDocumentFragment();
+
+    // Точный режим
+    if (Array.isArray(marks) && marks.length) {
+      let lastIdx = 0;
+
+      for (let i = 0; i < marks.length; i++) {
+        const mark = marks[i];
+
+        if (mark.text_offset > lastIdx) {
+          frag.appendChild(document.createTextNode(text.substring(lastIdx, mark.text_offset)));
+        }
+
+        const wordSpan = document.createElement('span');
+        wordSpan.className = 'w';
+        wordSpan.dataset.i = String(i);
+        wordSpan.textContent = mark.word;
+        frag.appendChild(wordSpan);
+
+        currentWordSpans.push(wordSpan);
+        lastIdx = mark.text_offset + mark.word_len;
+      }
+
+      if (lastIdx < text.length) {
+        frag.appendChild(document.createTextNode(text.substring(lastIdx)));
+      }
+
+      bookDisplay.appendChild(frag);
+      bookDisplay.scrollTop = 0;
+      return;
+    }
+
+    // Fallback режим
+    const words = text.split(/\s+/).filter(Boolean);
+    for (let i = 0; i < words.length; i++) {
+      const wordSpan = document.createElement('span');
+      wordSpan.className = 'w';
+      wordSpan.dataset.i = String(i);
+      wordSpan.textContent = words[i] + ' ';
+      frag.appendChild(wordSpan);
+      currentWordSpans.push(wordSpan);
+    }
+
+    bookDisplay.appendChild(frag);
+    bookDisplay.scrollTop = 0;
+  }
+
+  // ========== СЕТЬ ==========
+  async function fetchAudio(index) {
+    if (index < 0 || index >= chunks.length) return null;
+    if (audioCache.has(index)) return audioCache.get(index);
+    if (inFlight.has(index)) return inFlight.get(index);
+
+    const promise = (async () => {
+      // Отменяем предыдущий запрос именно для этого index (если был)
+      controllers.get(index)?.abort();
+      const controller = new AbortController();
+      controllers.set(index, controller);
+
+      try {
+        const response = await fetch('/speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({ text: chunks[index], voice: voiceSelect.value })
         });
-        if (currentChunk.trim()) result.push(currentChunk.trim());
-        return result;
+
+        if (!response.ok) throw new Error('Ошибка сети или сервера');
+
+        const data = await response.json();
+        audioCache.set(index, data);
+        updateCacheInfo();
+        return data;
+      } catch (e) {
+        // AbortError — не показываем как "ошибку", это нормальная ситуация при переключении
+        if (e && e.name === 'AbortError') return null;
+        throw e;
+      } finally {
+        // Контроллер можно оставить (на случай повторной отмены), но promise удаляем
+        inFlight.delete(index);
+      }
+    })();
+
+    inFlight.set(index, promise);
+
+    try {
+      return await promise;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ========== ПРОИГРЫВАНИЕ ==========
+  async function playChunk(index) {
+    if (!isPlaying) return;
+    if (index < 0 || index >= chunks.length) {
+      if (index >= chunks.length) setStatus('Книга прочитана до конца!', 'success');
+      return;
     }
 
-    // 1.1 Рендер списка навигации (Оглавление)
-    function renderNavigation() {
-        chapterList.innerHTML = '';
-        chunks.forEach((chunk, idx) => {
-            const div = document.createElement('div');
-            div.className = 'chapter-item';
-            div.id = `nav-item-${idx}`;
-            div.textContent = `${idx + 1}. ${chunk.substring(0, 60)}...`;
-            div.onclick = () => playChunk(idx);
-            chapterList.appendChild(div);
-        });
+    const myToken = ++playToken;
+
+    currentChunkIndex = index;
+    resetHighlightState();
+    updateProgressUI();
+    setNavActive(index);
+
+    setStatus(`Генерация фрагмента ${index + 1}...`, '');
+
+    const data = audioCache.get(index) || await fetchAudio(index);
+    if (myToken !== playToken) return;     // устарело (пользователь уже переключил)
+    if (!data) {
+      setStatus(`Не удалось загрузить часть ${index + 1}.`, 'error');
+      return;
     }
 
-    // 2. Загрузка файла (PDF/FB2)
-    async function uploadFile(input) {
-        if (!input.files || !input.files[0]) return;
-        
-        const file = input.files[0];
-        const formData = new FormData();
-        formData.append('file', file);
+    currentMarks = Array.isArray(data.marks) ? data.marks : [];
+    renderInteractiveText(chunks[index], currentMarks);
 
-        statusEl.textContent = 'Извлечение текста, подождите...';
-        statusEl.className = 'status-message';
-        textInput.disabled = true;
+    player.src = data.audio_url;
+    setStatus(`Читаю фрагмент ${index + 1}...`, '');
 
-        try {
-            const res = await fetch('/extract_text', {
-                method: 'POST',
-                body: formData
-            });
-            const data = await res.json();
-
-            if (!res.ok) throw new Error(data.error || 'Ошибка обработки файла');
-            
-            textInput.value = data.text;
-            statusEl.textContent = `Успешно загружено! Символов: ${data.text.length}`;
-            statusEl.className = 'status-message success';
-            
-            setTimeout(() => {
-                if (!isPlaying) statusEl.textContent = '';
-            }, 3000);
-
-        } catch (e) {
-            statusEl.textContent = 'Ошибка: ' + e.message;
-            statusEl.className = 'status-message error';
-        } finally {
-            textInput.disabled = false;
-            input.value = '';
-        }
+    try {
+      await player.play();
+    } catch (e) {
+      // Автозапуск может быть заблокирован — это не "поломка"
+      setStatus('Автозапуск заблокирован браузером. Нажмите Play.', '');
     }
 
-    // 3. Запуск режима чтения
-    async function startReading() {
-        const text = textInput.value.trim();
-        if (!text) {
-            statusEl.textContent = 'Введите текст или загрузите книгу!';
-            statusEl.className = 'status-message error';
-            textInput.focus();
-            return;
-        }
+    // Прелоад следующих
+    for (let k = 1; k <= PRELOAD_AHEAD; k++) {
+      const nextIdx = index + k;
+      if (nextIdx < chunks.length) fetchAudio(nextIdx);
+    }
+  }
 
-        chunks = splitText(text);
-        if (chunks.length === 0) return;
+  function nextChunk() { playChunk(currentChunkIndex + 1); }
+  function prevChunk() { playChunk(currentChunkIndex - 1); }
 
-        currentChunkIndex = 0;
-        audioCache = {};
-        isPlaying = true;
+  function stopReading() {
+    isPlaying = false;
+    playToken++;            // гасим "поздние" async
 
-        renderNavigation();
+    player.pause();
+    player.src = "";
 
-        inputSection.style.display = 'none';
-        playerUI.classList.add('active');
-        
-        statusEl.textContent = 'Подготовка аудиопотока...';
-        statusEl.className = 'status-message';
+    playerUI.classList.remove('active');
+    inputSection.style.display = 'block';
 
-        await playChunk(0);
+    abortAllRequests();
+    clearCaches();
+
+    setStatus('Чтение остановлено.', '');
+  }
+
+  // ========== ЗАГРУЗКА ФАЙЛА ==========
+  async function uploadFile(input) {
+    if (!input.files || !input.files[0]) return;
+
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setStatus('Извлечение текста, подождите...', '');
+    textInput.disabled = true;
+    startBtn.disabled = true;
+
+    try {
+      const res = await fetch('/extract_text', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Ошибка обработки файла');
+
+      textInput.value = data.text || '';
+      setStatus(`Успешно загружено! Символов: ${textInput.value.length}`, 'success');
+
+      setTimeout(() => { if (!isPlaying) setStatus('', ''); }, 3000);
+    } catch (e) {
+      setStatus('Ошибка: ' + (e?.message || e), 'error');
+    } finally {
+      textInput.disabled = false;
+      startBtn.disabled = false;
+      input.value = '';
+    }
+  }
+
+  // ========== СТАРТ ==========
+  async function startReading() {
+    const text = textInput.value.trim();
+    if (!text) {
+      setStatus('Введите текст или загрузите книгу!', 'error');
+      textInput.focus();
+      return;
     }
 
-    // 4. Загрузка аудио с сервера
-    async function fetchAudio(index) {
-        if (index >= chunks.length || index < 0) return null;
-        if (audioCache[index]) return audioCache[index];
+    chunks = splitText(text);
+    if (!chunks.length) return;
 
-        if (index === currentChunkIndex) {
-            statusEl.textContent = `Генерация фрагмента ${index + 1}...`;
-        }
-        
-        try {
-            const response = await fetch('/speak', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    text: chunks[index], 
-                    voice: document.getElementById('voice').value 
-                })
-            });
+    // Полный сброс сетевого/кэш состояния
+    playToken++;
+    abortAllRequests();
+    clearCaches();
 
-            if (!response.ok) throw new Error('Ошибка сети или сервера');
+    currentChunkIndex = 0;
+    isPlaying = true;
 
-            const data = await response.json(); 
-            audioCache[index] = data;
-            
-            updateCacheInfo();
-            return data;
-        } catch (error) {
-            console.error("Ошибка загрузки чанка " + index, error);
-            if (index === currentChunkIndex) {
-                statusEl.textContent = "Ошибка сети. Пробуем повторить...";
-                statusEl.className = 'status-message error';
-            }
-            return null;
-        }
+    renderNavigation();
+
+    inputSection.style.display = 'none';
+    playerUI.classList.add('active');
+
+    setStatus('Подготовка аудиопотока...', '');
+    updateProgressUI();
+    updateCacheInfo();
+
+    await playChunk(0);
+  }
+
+  // ========== СОБЫТИЯ UI ==========
+  startBtn.addEventListener('click', startReading);
+
+  prevBtn.addEventListener('click', prevChunk);
+  nextBtn.addEventListener('click', nextChunk);
+  stopBtn.addEventListener('click', stopReading);
+
+  fileInput.addEventListener('change', (e) => uploadFile(e.target));
+
+  textInput.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      startReading();
+    }
+  });
+
+  // Оглавление — делегирование клика
+  chapterList.addEventListener('click', (e) => {
+    const item = e.target.closest('.chapter-item');
+    if (!item) return;
+    const idx = Number(item.dataset.idx);
+    if (Number.isFinite(idx)) playChunk(idx);
+  });
+
+  // Клик по слову — делегирование
+  bookDisplay.addEventListener('click', (e) => {
+    const el = e.target.closest('.w');
+    if (!el) return;
+
+    const i = Number(el.dataset.i);
+    if (!Number.isFinite(i)) return;
+
+    if (currentMarks.length) {
+      const m = currentMarks[i];
+      if (m && typeof m.offset === 'number') {
+        player.currentTime = m.offset;
+        player.play().catch(() => {});
+      }
+      return;
     }
 
-    // 5. Воспроизведение конкретного куска
-    async function playChunk(index) {
-        if (!isPlaying) return;
-        if (index < 0 || index >= chunks.length) {
-            if (index >= chunks.length) {
-                statusEl.textContent = "Книга прочитана до конца!";
-                statusEl.className = 'status-message success';
-            }
-            return;
+    if (player.duration > 0 && currentWordSpans.length) {
+      player.currentTime = player.duration * (i / currentWordSpans.length);
+      player.play().catch(() => {});
+    }
+  });
+
+  // Если меняют голос во время чтения — сброс кэша/запросов, переиграть текущий фрагмент
+  voiceSelect.addEventListener('change', () => {
+    if (!isPlaying || !chunks.length) return;
+
+    playToken++;
+    abortAllRequests();
+    clearCaches();
+    resetHighlightState();
+
+    setStatus('Голос изменён — перегенерирую текущий фрагмент...', '');
+    playChunk(currentChunkIndex);
+  });
+
+  // ========== МЕДИА-СОБЫТИЯ ==========
+  player.addEventListener('ended', () => {
+    if (isPlaying) playChunk(currentChunkIndex + 1);
+  });
+
+  player.addEventListener('timeupdate', () => {
+    const t = player.currentTime;
+    let idx = -1;
+
+    if (currentMarks.length) {
+      // Перемотка назад — пересчёт
+      if (markPtr < currentMarks.length && t < currentMarks[markPtr]?.offset) {
+        markPtr = Math.max(0, findMarkIndexByTime(t));
+      } else {
+        // Нормальный ход вперёд
+        while (markPtr + 1 < currentMarks.length && t >= currentMarks[markPtr + 1].offset) {
+          markPtr++;
         }
-
-        currentChunkIndex = index;
-        lastActiveIndex = -1;
-        updateProgressUI();
-
-        document.querySelectorAll('.chapter-item.active').forEach(el => el.classList.remove('active'));
-        const navItem = document.getElementById(`nav-item-${index}`);
-        if (navItem) {
-            navItem.classList.add('active');
-            navItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-
-        let data = audioCache[index];
-        if (!data) {
-            data = await fetchAudio(index);
-        }
-
-        if (!data) {
-            statusEl.textContent = `Не удалось загрузить часть ${index + 1}.`;
-            statusEl.className = 'status-message error';
-            return;
-        }
-
-        currentMarks = data.marks || [];
-        currentWordSpans = []; // Очистим массив спанов
-        renderInteractiveText(chunks[index], currentMarks);
-
-        player.src = data.audio_url;
-        statusEl.textContent = `Читаю фрагмент ${index + 1}...`;
-        statusEl.className = 'status-message';
-        
-        try {
-            await player.play();
-        } catch (e) {
-            statusEl.textContent = "Автозапуск заблокирован браузером. Нажмите Play.";
-        }
-
-        if (index + 1 < chunks.length) {
-            fetchAudio(index + 1);
-        }
+      }
+      idx = Math.min(markPtr, currentMarks.length - 1);
+    } else if (currentWordSpans.length && player.duration > 0) {
+      idx = Math.floor((t / player.duration) * currentWordSpans.length);
+      idx = Math.max(0, Math.min(idx, currentWordSpans.length - 1));
     }
 
-    // 6. Отрисовка текста с поддержкой точных меток и fallback-подсветки
-    function renderInteractiveText(text, marks) {
-        bookDisplay.innerHTML = '';
-        currentWordSpans = [];
+    if (idx === -1 || idx === lastActiveIndex) return;
 
-        // Точный режим — если пришли метки WordBoundary
-        if (marks && marks.length > 0) {
-            console.log('Using exact marks mode');
-            let lastIdx = 0;
+    // Снять старую подсветку
+    if (lastActiveIndex !== -1) currentWordSpans[lastActiveIndex]?.classList.remove('active');
 
-            marks.forEach((mark, i) => {
-                // Префикс (пробелы/пунктуация)
-                if (mark.text_offset > lastIdx) {
-                    const prefix = document.createElement('span');
-                    prefix.textContent = text.substring(lastIdx, mark.text_offset);
-                    bookDisplay.appendChild(prefix);
-                }
+    // Поставить новую
+    lastActiveIndex = idx;
+    const el = currentWordSpans[idx];
+    if (!el) return;
+    el.classList.add('active');
 
-                const wordSpan = document.createElement('span');
-                wordSpan.className = 'w';
-                wordSpan.textContent = mark.word;
-                wordSpan.onclick = () => {
-                    player.currentTime = mark.offset;
-                    player.play();
-                };
-                bookDisplay.appendChild(wordSpan);
-
-                currentWordSpans.push(wordSpan);
-                mark.el = wordSpan; // Для совместимости со старой логикой
-
-                lastIdx = mark.text_offset + mark.word_len;
-            });
-
-            // Остаток текста
-            if (lastIdx < text.length) {
-                const suffix = document.createElement('span');
-                suffix.textContent = text.substring(lastIdx);
-                bookDisplay.appendChild(suffix);
-            }
-
-            return;
-        }
-
-        // Fallback-режим: приближённая подсветка по длительности аудио
-        console.log('Fallback activated: approximate highlighting');
-        const words = text.split(/\s+/).filter(w => w.length > 0);
-
-        words.forEach((word, i) => {
-            const wordSpan = document.createElement('span');
-            wordSpan.className = 'w';
-            wordSpan.textContent = word + ' ';
-            wordSpan.onclick = () => {
-                if (player.duration > 0) {
-                    player.currentTime = player.duration * (i / words.length);
-                    player.play();
-                }
-            };
-            bookDisplay.appendChild(wordSpan);
-            currentWordSpans.push(wordSpan);
-        });
+    // Автопрокрутка (троттлинг + без smooth, чтобы не копить анимации)
+    const now = performance.now();
+    if (now - lastScrollAt > SCROLL_THROTTLE_MS) {
+      el.scrollIntoView({ block: 'nearest' });
+      lastScrollAt = now;
     }
+  });
 
-    // 7. Подсветка активного слова (унифицировано для обоих режимов)
-    player.ontimeupdate = () => {
-        const t = player.currentTime;
-        let currentIdx = -1;
-
-        // Точный режим
-        if (currentMarks.length > 0) {
-            for (let i = 0; i < currentMarks.length; i++) {
-                if (t >= currentMarks[i].offset) {
-                    currentIdx = i;
-                } else {
-                    break;
-                }
-            }
-
-            // Держим последнее слово до конца, если уже нет следующего
-            if (currentIdx !== -1) {
-                const nextOffset = (currentIdx + 1 < currentMarks.length)
-                    ? currentMarks[currentMarks + 1].offset
-                    : Infinity;
-                if (t >= nextOffset) return;
-            }
-        }
-        // Fallback-режим
-        else if (currentWordSpans.length > 0 && player.duration > 0) {
-            const progress = t / player.duration;
-            currentIdx = Math.floor(progress * currentWordSpans.length);
-            currentIdx = Math.min(currentIdx, currentWordSpans.length - 1);
-        }
-
-        // Обновляем подсветку только при смене слова
-        if (currentIdx !== lastActiveIndex && currentIdx !== -1) {
-            if (lastActiveIndex !== -1) {
-                currentWordSpans[lastActiveIndex]?.classList.remove('active');
-            }
-
-            lastActiveIndex = currentIdx;
-            const el = currentWordSpans[currentIdx];
-            if (el) {
-                el.classList.add('active');
-                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            }
-        }
-    };
-
-    // 8. Управление плеером
-    player.onended = () => {
-        if (isPlaying) {
-            playChunk(currentChunkIndex + 1);
-        }
-    };
-
-    function nextChunk() {
-        playChunk(currentChunkIndex + 1);
-    }
-
-    function prevChunk() {
-        playChunk(currentChunkIndex - 1);
-    }
-
-    function stopReading() {
-        isPlaying = false;
-        player.pause();
-        player.src = "";
-        
-        playerUI.classList.remove('active');
-        inputSection.style.display = 'block';
-        
-        statusEl.textContent = 'Чтение остановлено.';
-        statusEl.className = 'status-message';
-        
-        audioCache = {};
-    }
-
-    function updateProgressUI() {
-        document.getElementById('chunkInfo').textContent = `Фрагмент ${currentChunkIndex + 1} из ${chunks.length}`;
-        const percent = ((currentChunkIndex + 1) / chunks.length) * 100;
-        document.getElementById('progress').style.width = percent + "%";
-    }
-    
-    function updateCacheInfo() {
-        const count = Object.keys(audioCache).length;
-        document.getElementById('preloadInfo').textContent = `Кэш: ${count}`;
-    }
+  // Экспорт в window (если нужно дергать из консоли/старых inline-хендлеров)
+  window.startReading = startReading;
+  window.stopReading = stopReading;
+  window.nextChunk = nextChunk;
+  window.prevChunk = prevChunk;
+  window.playChunk = playChunk;
+  window.uploadFile = uploadFile;
 </script>
 
 </body>
