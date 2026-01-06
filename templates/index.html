@@ -351,6 +351,9 @@
   const SCROLL_THROTTLE_MS = 250;
   const DEBUG = false;
 
+  // небольшой опережающий сдвиг подсветки (подбирается на слух)
+  let HIGHLIGHT_LEAD = 0.18; // 180 мс вперёд [web:47]
+
   // ===== СОСТОЯНИЕ =====
   let chunks = [];
   let currentChunkIndex = 0;
@@ -502,6 +505,22 @@
     return data;
   }
 
+  // подгоняем marks под фактическую длину аудио, чтобы убрать накопленный дрейф [web:45]
+  function rescaleMarksToDuration() {
+    if (!currentMarks.length || !Number.isFinite(player.duration) || player.duration <= 0) return;
+
+    const last = currentMarks[currentMarks.length - 1].offset;
+    if (!Number.isFinite(last) || last <= 0) return;
+
+    const scale = player.duration / last;
+    if (Math.abs(1 - scale) < 0.02) return; // меньше 2% — можно не трогать
+
+    currentMarks = currentMarks.map(m => ({
+      ...m,
+      offset: m.offset * scale
+    }));
+  }
+
   function ensureVisible(el) {
     const p = bookDisplay.getBoundingClientRect();
     const r = el.getBoundingClientRect();
@@ -588,7 +607,8 @@
       return;
     }
 
-    const t = player.currentTime;
+    // учитываем опережающий сдвиг [web:47]
+    const t = player.currentTime + HIGHLIGHT_LEAD;
     let idx = -1;
 
     if (currentMarks.length) {
@@ -642,7 +662,12 @@
     currentMarks = Array.isArray(data.marks) ? data.marks : [];
     renderInteractiveText(chunks[index]);
 
+    // ставим src и после загрузки метаданных нормализуем метки [web:45]
     player.src = data.audio_url;
+    player.onloadedmetadata = () => {
+      rescaleMarksToDuration();
+    };
+
     setStatus(`Читаю фрагмент ${index + 1}...`, '');
 
     try {

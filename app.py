@@ -22,6 +22,7 @@ app = Flask(__name__)
 # ----------------------------
 BASE_DIR = Path(__file__).resolve().parent
 CACHE_DIR = BASE_DIR / "audio_cache"
+# Гарантируем, что каталог кэша существует до любых операций записи
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_VOICES = {
@@ -320,7 +321,11 @@ async def generate_with_timings(*, text: str, voice: str, audio_path: Path) -> L
     communicate = edge_tts.Communicate(text, voice)
     marks: List[Dict[str, Any]] = []
 
+    # путь к временному файлу рядом с целевым mp3
     tmp_audio = audio_path.with_suffix(audio_path.suffix + ".part")
+
+    # на всякий случай убеждаемся, что директория существует
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         with open(tmp_audio, "wb") as f:
