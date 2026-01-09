@@ -97,6 +97,7 @@ def _read_json(path: Path) -> Any:
 
 
 _UNI_GLYPH_RE = re.compile(r"/?uni([0-9A-Fa-f]{4})")
+_uni_decode_log_left = 10
 
 
 def _decode_uni_glyph_names(s: str) -> str:
@@ -115,7 +116,10 @@ def _decode_uni_glyph_names(s: str) -> str:
         return chr(int(m.group(1), 16))
 
     out = _UNI_GLYPH_RE.sub(repl, s)
-    if replaced:
+
+    global _uni_decode_log_left
+    if replaced and _uni_decode_log_left > 0:
+        _uni_decode_log_left -= 1
         log.info("pdf_clean: decoded uniXXXX=%s", replaced)
 
     # После подстановки часто остаются "/" между глифами — убираем,
@@ -129,7 +133,7 @@ def _clean_pdf_text(s: str) -> str:
     Очистка текста после извлечения из PDF:
     - декод /uniXXXX
     - NBSP -> пробел
-    - лидеры оглавления ". . . . ." -> " — "
+    - лидеры оглавления ". . . . ." -> " — " (только если строка заканчивается номером страницы)
     - убираем soft hyphen
     - склейка переносов слов
     - одиночные переносы строк -> пробел
@@ -146,17 +150,14 @@ def _clean_pdf_text(s: str) -> str:
     # NBSP -> обычный пробел (U+00A0 часто используется в PDF)
     s = s.replace("\xa0", " ")
 
-    # Оглавление: ".  .  .  .  ." (dot leaders) -> " — "
-    # (иначе TTS проговаривает точки)
     # Лидеры оглавления -> " — " только если строка заканчивается номером страницы
-    # Пример: "Глава 5 ... 186"  => "Глава 5 — 186"
+    # (re.MULTILINE: $ и ^ работают как конец/начало каждой строки)  [web:291]
     s = re.sub(
         r"(?:\s*\.\s*){4,}(?=\s*\d+\s*$)",
         " — ",
         s,
         flags=re.MULTILINE,
     )
-
 
     # Часто в PDF встречается "мягкий перенос" (soft hyphen), его TTS читает как дефис
     s = s.replace("\u00ad", "")
@@ -183,9 +184,9 @@ def _clean_pdf_text(s: str) -> str:
 
 
 def _log_pdf_hyphen_issues(*, label: str, s: str, limit: int = 12) -> None:
-    """
-    Диагностика: логируем фрагменты, где видно дефис + пробел(ы) между \w...\w
-    и спец-символы переносов.
+    r"""
+    Диагностика переносов: логируем места, где слово разорвано как "\w-\s+\w"
+    и считаем спец-символы переносов (soft hyphen, zero-width и т.п.).
     """
     if not s:
         return

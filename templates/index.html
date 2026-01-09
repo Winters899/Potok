@@ -352,24 +352,26 @@
   const SCROLL_THROTTLE_MS = 250;
   const DEBUG = false;
 
+  // упреждение подсветки (сек)
   let HIGHLIGHT_LEAD = 0.18;
 
   // ===== СОСТОЯНИЕ =====
   let chunks = [];
-  let chunksMeta = []; // [{ text, start }] start = start_char чанка в исходном тексте
+  let chunksMeta = []; // [{ text, start }]
   let chapters = [];
   let currentChunkIndex = 0;
   let currentMarks = [];
 
   let currentWordSpans = [];
+  let wordCharStarts = []; // стартовые char-offset каждого "слова" в текущем чанке
   let isPlaying = false;
   let lastActiveWordIndex = -1;
   let lastScrollAt = 0;
   let playToken = 0;
 
-  const audioCache = new Map();
-  const inFlight = new Map();
-  const controllers = new Map();
+  const audioCache = new Map();     // idx -> {audio_url, marks, cache}
+  const inFlight = new Map();       // idx -> Promise
+  const controllers = new Map();    // idx -> AbortController
   let rafId = 0;
   let reqSeq = 0;
 
@@ -381,12 +383,12 @@
   const startBtn     = $('startBtn');
   const inputSection = $('inputSection');
 
-  const statusEl   = $('status');
-  const playerUI   = $('playerUI');
-  const player     = $('audioPlayer');
-  const bookDisplay= $('bookDisplay');
-  const chapterList= $('chapterList');
-  const voiceSelect= $('voice');
+  const statusEl    = $('status');
+  const playerUI    = $('playerUI');
+  const player      = $('audioPlayer');
+  const bookDisplay = $('bookDisplay');
+  const chapterList = $('chapterList');
+  const voiceSelect = $('voice');
 
   const chunkInfoEl   = $('chunkInfo');
   const preloadInfoEl = $('preloadInfo');
@@ -397,9 +399,9 @@
   const stopBtn = $('stopBtn');
 
   // ===== ЛОГ =====
-  function log(...args)   { if (DEBUG) console.log(...args); }
-  function warn(...args)  { if (DEBUG) console.warn(...args); }
-  function err(...args)   { if (DEBUG) console.error(...args); }
+  function log(...args)  { if (DEBUG) console.log(...args); }
+  function warn(...args) { if (DEBUG) console.warn(...args); }
+  function err(...args)  { if (DEBUG) console.error(...args); }
 
   // ===== ПРОГРЕСС (localStorage) =====
   const PROGRESS_KEY = "neuro_reader_progress_v1";
@@ -415,6 +417,7 @@
     try {
       localStorage.setItem(PROGRESS_KEY, JSON.stringify(payload));
     } catch (e) {
+      // quota/disabled storage — не критично
       err("saveProgress failed", e);
     }
   }
@@ -430,7 +433,7 @@
     }
   }
 
-  // ===== УТИЛИТЫ =====
+  // ===== УТИЛИТЫ UI =====
   function setStatus(text, kind) {
     statusEl.textContent = text || '';
     statusEl.className = 'status-message' + (kind ? ' ' + kind : '');
@@ -462,25 +465,7 @@
     preloadInfoEl.textContent = `Кэш: ${audioCache.size}`;
   }
 
-  function splitText(text) {
-    const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
-    const result = [];
-    let currentChunk = '';
-
-    for (const s of sentences) {
-      if (currentChunk.length + s.length > CHUNK_SIZE) {
-        if (currentChunk.trim()) result.push(currentChunk.trim());
-        currentChunk = s;
-      } else {
-        currentChunk += s;
-      }
-    }
-    if (currentChunk.trim()) result.push(currentChunk.trim());
-    return result;
-  }
-
- 
-  // splitText, но возвращает и start_char каждого чанка (точно для оглавления)
+  // ===== РЕЗКА ТЕКСТА С OFFSET =====
   function splitTextWithOffsets(text) {
     const re = /[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g;
     let m;
@@ -501,7 +486,7 @@
         buf = seg;
       } else {
         if (buf.length + seg.length > CHUNK_SIZE) {
-          const trimmed = buf.replace(/^\\s+/, '');
+          const trimmed = buf.replace(/^\s+/, '');
           const lead = buf.length - trimmed.length;
           const start = bufStartRaw + lead;
           if (trimmed.length) out.push({ text: trimmed, start });
@@ -515,7 +500,7 @@
     }
 
     if (bufInited) {
-      const trimmed = buf.replace(/^\\s+/, '');
+      const trimmed = buf.replace(/^\s+/, '');
       const lead = buf.length - trimmed.length;
       const start = bufStartRaw + lead;
       if (trimmed.length) out.push({ text: trimmed, start });
@@ -529,6 +514,7 @@
     return out;
   }
 
+  // ===== ГЛАВЫ -> ЧАНКИ =====
   function mapChaptersToChunks() {
     if (!chapters || !chapters.length) return;
     if (!chunksMeta || !chunksMeta.length) return;
@@ -536,7 +522,6 @@
     const starts = chunksMeta.map(c => c.start);
 
     function findChunkIndexByCharOffset(pos) {
-      // rightmost start <= pos
       let lo = 0, hi = starts.length - 1, ans = 0;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
@@ -549,9 +534,6 @@
     chapters.forEach(ch => {
       if (typeof ch.start_char === 'number' && Number.isFinite(ch.start_char)) {
         ch.chunk_index = findChunkIndexByCharOffset(ch.start_char);
-      } else if (typeof ch.page === 'number') {
-        // Без server-side start_char для PDF точного маппинга не будет
-        ch.chunk_index = ch.chunk_index ?? 0;
       } else {
         ch.chunk_index = ch.chunk_index ?? 0;
       }
@@ -564,7 +546,6 @@
     chapterList.innerHTML = '';
     const frag = document.createDocumentFragment();
 
-    // reverse() мутирует массив, поэтому делаем копию через slice()
     const items = (chapters && chapters.length)
       ? chapters.slice().reverse()
       : chunksMeta
@@ -614,6 +595,7 @@
     setNavActive(active.chunk_index ?? 0);
   }
 
+  // ===== MARKS =====
   function findMarkIndexByTime(t) {
     const a = currentMarks;
     let lo = 0, hi = a.length - 1, ans = -1;
@@ -651,10 +633,49 @@
     if (!Number.isFinite(last) || last <= 0) return;
     const scale = player.duration / last;
     if (Math.abs(1 - scale) < 0.02) return;
-    currentMarks = currentMarks.map(m => ({
-      ...m,
-      offset: m.offset * scale
-    }));
+    currentMarks = currentMarks.map(m => ({ ...m, offset: m.offset * scale }));
+  }
+
+  // ===== ТЕКСТ -> СПАНЫ + CHAR OFFSETS =====
+  function renderInteractiveText(text) {
+    bookDisplay.innerHTML = '';
+    currentWordSpans = [];
+    wordCharStarts = [];
+    lastActiveWordIndex = -1;
+
+    const wordRe = /\S+/g;
+    const frag = document.createDocumentFragment();
+    let m, wi = 0;
+
+    while ((m = wordRe.exec(text)) !== null) {
+      const w = m[0];
+      const start = m.index;
+
+      const span = document.createElement('span');
+      span.className = 'w';
+      span.dataset.w = wi;
+      span.textContent = w + ' ';
+      frag.appendChild(span);
+
+      currentWordSpans.push(span);
+      wordCharStarts.push(start);
+      wi++;
+    }
+
+    bookDisplay.appendChild(frag);
+    bookDisplay.scrollTop = 0;
+  }
+
+  function findWordIndexByCharOffset(charPos) {
+    const a = wordCharStarts;
+    if (!a.length) return -1;
+    let lo = 0, hi = a.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (a[mid] <= charPos) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
   }
 
   function ensureVisible(el) {
@@ -670,11 +691,11 @@
     if (index < 0 || index >= chunks.length) return null;
 
     if (audioCache.has(index)) return audioCache.get(index);
-    if (inFlight.has(index))  return inFlight.get(index);
+    if (inFlight.has(index)) return inFlight.get(index);
 
     const reqId = ++reqSeq;
     const voice = voiceSelect.value;
-    const text  = chunks[index] || '';
+    const text = chunks[index] || '';
 
     const promise = (async () => {
       controllers.get(index)?.abort();
@@ -714,29 +735,7 @@
     }
   }
 
-  // ===== РЕНДЕР ТЕКСТА =====
-  function renderInteractiveText(text) {
-    bookDisplay.innerHTML = '';
-    currentWordSpans = [];
-    lastActiveWordIndex = -1;
-
-    const words = text.split(/\s+/);
-    const frag = document.createDocumentFragment();
-
-    words.forEach((w, wi) => {
-      const span = document.createElement('span');
-      span.className = 'w';
-      span.dataset.w = wi;
-      span.textContent = w + ' ';
-      frag.appendChild(span);
-      currentWordSpans.push(span);
-    });
-
-    bookDisplay.appendChild(frag);
-    bookDisplay.scrollTop = 0;
-  }
-
-  // ===== FRAME LOOP =====
+  // ===== ПОДСВЕТКА =====
   function highlightFrame() {
     if (!isPlaying || player.paused || player.ended) {
       rafId = 0;
@@ -744,21 +743,30 @@
     }
 
     const t = player.currentTime + HIGHLIGHT_LEAD;
-    let idx = -1;
+    let wordIdx = -1;
 
     if (currentMarks.length) {
-      idx = findMarkIndexByTime(t);
+      const mi = findMarkIndexByTime(t);
+      if (mi !== -1) {
+        const off = currentMarks[mi]?.text_offset;
+        if (Number.isFinite(off)) {
+          wordIdx = findWordIndexByCharOffset(off);
+        }
+      }
     } else if (currentWordSpans.length && player.duration > 0) {
-      idx = Math.floor((t / player.duration) * currentWordSpans.length);
-      idx = Math.max(0, Math.min(idx, currentWordSpans.length - 1));
+      wordIdx = Math.floor((t / player.duration) * currentWordSpans.length);
+      wordIdx = Math.max(0, Math.min(wordIdx, currentWordSpans.length - 1));
     }
 
-    if (idx !== -1 && idx !== lastActiveWordIndex) {
+    if (wordIdx >= currentWordSpans.length) wordIdx = currentWordSpans.length - 1;
+
+    if (wordIdx !== -1 && wordIdx !== lastActiveWordIndex) {
       if (lastActiveWordIndex !== -1) {
         currentWordSpans[lastActiveWordIndex]?.classList.remove('active');
       }
-      lastActiveWordIndex = idx;
-      const el = currentWordSpans[idx];
+      lastActiveWordIndex = wordIdx;
+
+      const el = currentWordSpans[wordIdx];
       if (el) {
         const now = performance.now();
         if (now - lastScrollAt > SCROLL_THROTTLE_MS) {
@@ -798,6 +806,7 @@
     renderInteractiveText(chunks[index]);
 
     player.src = data.audio_url;
+
     player.onloadedmetadata = () => {
       rescaleMarksToDuration();
 
@@ -805,11 +814,7 @@
       if (saved &&
           Number.isFinite(saved.position) &&
           saved.chunk_index === currentChunkIndex) {
-        try {
-          player.currentTime = saved.position;
-        } catch (e) {
-          err("restore position failed", e);
-        }
+        try { player.currentTime = saved.position; } catch {}
       }
     };
 
@@ -867,8 +872,10 @@
 
       textInput.value = data.text || '';
       chapters = Array.isArray(data.chapters) ? data.chapters : [];
+
       chunksMeta = splitTextWithOffsets(textInput.value);
       chunks = chunksMeta.map(c => c.text);
+
       mapChaptersToChunks();
       renderNavigation();
 
@@ -956,9 +963,7 @@
   });
 
   setInterval(() => {
-    if (!player.paused && !player.ended) {
-      saveProgress();
-    }
+    if (!player.paused && !player.ended) saveProgress();
   }, 3000);
 
   window.addEventListener('load', async () => {
@@ -989,19 +994,10 @@
   });
 
   // экспорт для отладки
-  window.startReading = startReading;
-  window.stopReading  = stopReading;
-  window.nextChunk    = nextChunk;
-  window.prevChunk    = prevChunk;
-  window.playChunk    = playChunk;
-  window.uploadFile   = uploadFile;
-
   window._dbg = {
-    get chunks()        { return chunks; },
-    get currentMarks()  { return currentMarks; },
-    get audioCache()    { return audioCache; },
-    get inFlight()      { return inFlight; },
-    get controllers()   { return controllers; },
+    get chunks() { return chunks; },
+    get currentMarks() { return currentMarks; },
+    get audioCache() { return audioCache; },
     player,
     inferOffsetUnit,
   };
