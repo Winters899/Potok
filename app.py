@@ -44,7 +44,7 @@ CACHE_MAX_AGE_SEC = 3 * 24 * 3600
 CACHE_MAX_PAIRS = 2000
 CACHE_CLEANUP_EVERY_SEC = 10 * 60
 
-# если в кэше marks пустые/битые — считаем, что кэш нельзя использовать
+# if marks are empty/broken in cache -> treat as invalid cache entry
 MIN_MARKS_FOR_CACHE_HIT = 2
 
 # ----------------------------
@@ -91,7 +91,13 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".part")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
-    # os.replace делает атомарную замену файла (перезапишет существующий). [web:432]
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            # not critical (some FS / environments may not support)
+            pass
+    # os.replace atomically replaces destination (also overwrites on Windows). [web:546]
     os.replace(tmp, path)
 
 
@@ -106,8 +112,8 @@ _uni_decode_log_left = 10
 
 def _decode_uni_glyph_names(s: str) -> str:
     """
-    pypdf иногда возвращает glyph names вида "/uni041A/uni0438..." вместо текста.
-    Пробуем превратить uniXXXX обратно в символы Unicode.
+    pypdf can sometimes return glyph names like "/uni041A/uni0438..." instead of text.
+    Attempt to decode uniXXXX back to Unicode characters.
     """
     if not s:
         return ""
@@ -126,35 +132,30 @@ def _decode_uni_glyph_names(s: str) -> str:
         _uni_decode_log_left -= 1
         log.info("pdf_clean: decoded uniXXXX=%s", replaced)
 
-    # После подстановки часто остаются "/" между глифами — убираем,
-    # но только когда слеш стоит между буквами/цифрами (не трогаем URL/пути).
+    # Remove "/" between alnum glyphs, keep URLs/paths intact
     out = re.sub(r"(?<=\w)/(?=\w)", "", out)
     return out
 
 
 def _clean_pdf_text(s: str) -> str:
     """
-    Очистка текста после извлечения из PDF:
-    - декод /uniXXXX
-    - NBSP -> пробел
-    - лидеры оглавления ". . . . ." -> " — " (только если строка заканчивается номером страницы)
-    - убираем soft hyphen
-    - склейка переносов слов
-    - одиночные переносы строк -> пробел
-    - схлопывание множественных пробелов
+    Cleanup after PDF extraction:
+    - decode /uniXXXX
+    - NBSP -> space
+    - table-of-contents leaders ". . . . ." -> " — " (only if line ends with a page number)
+    - remove soft hyphen
+    - stitch hyphenated line breaks
+    - single line breaks -> space (double newlines kept)
+    - collapse multiple spaces
     """
     if not s:
         return ""
 
     s = s.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Декодируем /uniXXXX (если встретились)
     s = _decode_uni_glyph_names(s)
-
-    # NBSP -> обычный пробел (U+00A0 часто используется в PDF)
     s = s.replace("\xa0", " ")
 
-    # Лидеры оглавления -> " — " только если строка заканчивается номером страницы
     s = re.sub(
         r"(?:\s*\.\s*){4,}(?=\s*\d+\s*$)",
         " — ",
@@ -162,10 +163,8 @@ def _clean_pdf_text(s: str) -> str:
         flags=re.MULTILINE,
     )
 
-    # Часто в PDF встречается "мягкий перенос" (soft hyphen), его TTS читает как дефис
-    s = s.replace("\u00ad", "")
+    s = s.replace("\u00ad", "")  # soft hyphen
 
-    # Нормализуем разные виды дефиса/минуса к обычному "-"
     s = s.translate(
         {
             ord("\u2010"): ord("-"),  # hyphen
@@ -174,13 +173,8 @@ def _clean_pdf_text(s: str) -> str:
         }
     )
 
-    # Склеиваем переносы слов: \w - whitespace/ZW - \w
     s = re.sub(r"(?<=\w)-[\s\u200b\u2060]+(?=\w)", "", s)
-
-    # Одиночные переносы строк внутри абзаца заменяем на пробел (двойные \n оставляем)
     s = re.sub(r"(?<!\n)\n(?!\n)", " ", s)
-
-    # Нормализуем множественные пробелы
     s = re.sub(r"[ \t]{2,}", " ", s)
 
     return s.strip()
@@ -188,8 +182,7 @@ def _clean_pdf_text(s: str) -> str:
 
 def _log_pdf_hyphen_issues(*, label: str, s: str, limit: int = 12) -> None:
     r"""
-    Диагностика переносов: логируем места, где слово разорвано как "\w-\s+\w"
-    и считаем спец-символы переносов (soft hyphen, zero-width и т.п.).
+    Diagnostics: occurrences of "\w-\s+\w" and counts of special hyphenation chars.
     """
     if not s:
         return
@@ -225,7 +218,7 @@ def _log_pdf_hyphen_issues(*, label: str, s: str, limit: int = 12) -> None:
 
 def _log_pdf_unicode_glyphs(*, label: str, page_index: int, s: str) -> None:
     """
-    Диагностика кейса, когда текст выглядит как "/uni041A/uni0438..."
+    Diagnostics for "/uni041A/uni0438..." glyph-name text.
     """
     if not s:
         return
@@ -239,13 +232,12 @@ def _log_pdf_unicode_glyphs(*, label: str, page_index: int, s: str) -> None:
             s[:120],
         )
 
-
 # ----------------------------
 # Chapter detection
 # ----------------------------
 def _detect_chapters_fb2(root: BeautifulSoup) -> list[dict]:
     """
-    Меню глав по структуре FB2: body/section/title.
+    Chapters menu based on FB2 structure: body/section/title.
     """
     chapters: list[dict] = []
 
@@ -263,7 +255,6 @@ def _detect_chapters_fb2(root: BeautifulSoup) -> list[dict]:
         body_name = body.get("name", "")
         if body_name == "notes":
             continue
-
         for section in body.find_all("section", recursive=False):
             walk_section(section, level=1)
 
@@ -272,7 +263,7 @@ def _detect_chapters_fb2(root: BeautifulSoup) -> list[dict]:
 
 def _detect_chapters_pdf_outlines(reader: PdfReader) -> list[dict]:
     """
-    Главы из закладок (outlines/bookmarks).
+    Chapters from PDF outlines/bookmarks.
     """
     chapters: list[dict] = []
     try:
@@ -325,7 +316,7 @@ def _detect_chapters_pdf_outlines(reader: PdfReader) -> list[dict]:
 
 def _detect_chapters_pdf_text(pages: list[str]) -> list[dict]:
     """
-    Fallback для PDF: ищем заголовки глав в plain-text.
+    Fallback for PDF: search chapter-like headings in plain text.
     """
     chapter_re = re.compile(
         r"^\s*(глава|часть|раздел|chapter|part)\s+\d+.*$|"
@@ -353,7 +344,7 @@ def _detect_chapters_pdf_text(pages: list[str]) -> list[dict]:
 
 def _detect_chapters_text_plain(text: str) -> list[dict]:
     """
-    Fallback для FB2/любого текста: ищем заголовки по шаблонам.
+    Fallback for FB2/any text: regex-based heading detection.
     """
     patterns = [
         r"^\s*(глава|часть|раздел|chapter|part)\s+[IVXLCDM\d]+[:\.\s].*$",
@@ -384,7 +375,6 @@ def _detect_chapters_text_plain(text: str) -> list[dict]:
         result.append(ch)
     return result
 
-
 # ----------------------------
 # Cache cleanup
 # ----------------------------
@@ -397,7 +387,7 @@ def _cleanup_cache_once() -> None:
 
     removed = 0
 
-    # удалить одиночки (mp3 без json или наоборот)
+    # Remove orphaned files (mp3 without json or vice versa)
     for k in list(keys):
         a = audio_files.get(k)
         m = marks_files.get(k)
@@ -412,7 +402,7 @@ def _cleanup_cache_once() -> None:
             except OSError:
                 pass
 
-    # собрать пары с mtime
+    # Gather pairs with mtime
     pairs: List[tuple[str, float]] = []
     for a in CACHE_DIR.glob(f"*{AUDIO_EXT}"):
         m = CACHE_DIR / (a.stem + MARKS_EXT)
@@ -424,7 +414,7 @@ def _cleanup_cache_once() -> None:
         except FileNotFoundError:
             continue
 
-    # чистка по возрасту
+    # Age-based cleanup
     pairs.sort(key=lambda x: x[1])
     for k, mt in pairs:
         if now - mt <= CACHE_MAX_AGE_SEC:
@@ -436,7 +426,7 @@ def _cleanup_cache_once() -> None:
         except OSError:
             pass
 
-    # чистка по количеству
+    # Count-based cleanup
     pairs = []
     for a in CACHE_DIR.glob(f"*{AUDIO_EXT}"):
         m = CACHE_DIR / (a.stem + MARKS_EXT)
@@ -484,7 +474,6 @@ def start_cache_cleanup_thread_once() -> None:
     t.start()
     log.info("Cache cleanup thread started")
 
-
 # ----------------------------
 # Routes
 # ----------------------------
@@ -512,7 +501,6 @@ def extract_text():
             for i, page in enumerate(reader.pages):
                 t_raw = page.extract_text() or ""
 
-                # Чтобы не засорять лог: детально логируем только первые 5 страниц
                 if t_raw and i < 5:
                     _log_pdf_hyphen_issues(label="before", s=t_raw, limit=6)
 
@@ -530,8 +518,6 @@ def extract_text():
 
             text = "\n\n".join(pages).strip()
             log.info("extract_text: pdf pages=%s text_len=%s", len(pages), len(text))
-            log.info("extract_text: pdf cleaned preview=%r", text[:200])
-            log.info("extract_text: pdf cleaned tail=%r", text[-200:])
 
             chapters = _detect_chapters_pdf_outlines(reader)
             log.info("extract_text: pdf outlines chapters=%s", len(chapters))
@@ -630,6 +616,7 @@ def speak():
     a_path = _audio_path(key)
     m_path = _marks_path(key)
 
+    # Fast path: cache hit
     if a_path.exists() and m_path.exists():
         try:
             marks = _read_json(m_path)
@@ -652,6 +639,7 @@ def speak():
             a_path.unlink(missing_ok=True)
             m_path.unlink(missing_ok=True)
 
+    # Fix mismatched pair
     if a_path.exists() != m_path.exists():
         a_path.unlink(missing_ok=True)
         m_path.unlink(missing_ok=True)
@@ -680,16 +668,15 @@ def get_audio(filename: str):
     if not path.exists():
         return "Not found", 404
 
-    # conditional=True включает отдачу 304/206 где уместно. [web:380]
+    # conditional=True enables conditional / range-friendly behavior where supported. [web:541][web:544]
     return send_from_directory(CACHE_DIR, filename, mimetype=AUDIO_MIME, conditional=True)
-
 
 # ----------------------------
 # edge-tts
 # ----------------------------
 async def generate_with_timings(*, text: str, voice: str, audio_path: Path) -> List[Dict[str, Any]]:
     """
-    WordBoundary offset в 100-нс тиках; перевод в секунды: / 10_000_000.
+    edge-tts WordBoundary offsets are in ticks (100 ns); seconds = ticks / 10_000_000. [web:548]
     """
     communicate = edge_tts.Communicate(text, voice)
     marks: List[Dict[str, Any]] = []
@@ -717,6 +704,12 @@ async def generate_with_timings(*, text: str, voice: str, audio_path: Path) -> L
                             "word": text[text_offset : text_offset + word_len].strip(),
                         }
                     )
+
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
 
         os.replace(tmp_audio, audio_path)
         return marks

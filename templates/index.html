@@ -5,294 +5,421 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Читалка (Smart Stream)</title>
   <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
-  <style>
-    :root {
-      --primary: #4f46e5;
-      --primary-hover: #4338ca;
-      --bg: #f3f4f6;
-      --card-bg: #ffffff;
-      --text: #1f2937;
-      --text-light: #6b7280;
-      --border: #e5e7eb;
-      --error: #10b981;
-      --success: #10b981;
-    }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: var(--bg);
-      color: var(--text);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 20px;
-    }
+<style>
+  :root {
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
 
-    .container {
-      background-color: var(--card-bg);
-      padding: 2rem;
-      border-radius: 1rem;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
-                  0 4px 6px -2px rgba(0, 0, 0, 0.05);
-      width: 100%;
-      max-width: 700px;
-      transition: all 0.3s ease;
-    }
+    --bg: #f3f4f6;
+    --card-bg: #ffffff;
 
-    header { text-align: center; margin-bottom: 2rem; }
+    --text: #1f2937;
+    --text-light: #6b7280;
 
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      margin: 0 0 0.5rem 0;
-      color: var(--text);
-    }
+    --border: #e5e7eb;
+    --error: #dc2626;
+    --success: #10b981;
 
-    p.subtitle {
-      color: var(--text-light);
-      font-size: 0.95rem;
-      margin: 0;
-      line-height: 1.5;
-    }
+    /* reader theme tokens (overridden by body.theme-*) */
+    --paper: #ffffff;
+    --ink: #111827;
+    --muted: #6b7280;
 
-    .control-group { margin-bottom: 1.5rem; }
+    --panel: rgba(255,255,255,.92);
+    --panel-border: rgba(0,0,0,.08);
 
-    label {
-      display: block;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-      font-size: 0.9rem;
-      color: var(--text);
-    }
+    --hl: #ffeb3b;
+    --hl-outline: #f59e0b;
 
-    textarea {
-      width: 100%;
-      padding: 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 0.5rem;
-      resize: vertical;
-      min-height: 150px;
-      font-family: inherit;
-      font-size: 1rem;
-      box-sizing: border-box;
-      transition: border-color 0.2s;
-      line-height: 1.5;
-    }
+    --shadow: 0 18px 40px rgba(0,0,0,.18);
+  }
 
-    textarea:focus, select:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgb(1, 241, 241);
-    }
+  /* Themes via CSS variables (pattern: body class overrides variables) [web:485][web:520] */
+  body.theme-day{
+    --paper: #ffffff;
+    --ink: #111827;
+    --muted: #6b7280;
+    --panel: rgba(255,255,255,.92);
+    --panel-border: rgba(0,0,0,.08);
+    --hl: #ffeb3b;
+    --hl-outline: #f59e0b;
+  }
 
-    textarea:disabled { background-color: #f9fafb; color: #9ca3af; }
+  body.theme-night{
+    --paper: #0b1220;
+    --ink: #e5e7eb;
+    --muted: #94a3b8;
+    --panel: rgba(15,23,42,.92);
+    --panel-border: rgba(255,255,255,.10);
+    --hl: rgba(250,204,21,.35);
+    --hl-outline: rgba(245,158,11,.85);
+  }
 
-    select {
-      width: 100%;
-      padding: 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 0.5rem;
-      background-color: white;
-      font-size: 1rem;
-      cursor: pointer;
-      box-sizing: border-box;
-    }
+  body.theme-sepia{
+    --paper: #f4ecd8;
+    --ink: #2b2418;
+    --muted: #6b5b3f;
+    --panel: rgba(244,236,216,.92);
+    --panel-border: rgba(43,36,24,.10);
+    --hl: rgba(245,158,11,.35);
+    --hl-outline: rgba(180,83,9,.85);
+  }
 
-    button {
-      width: 100%;
-      background-color: var(--primary);
-      color: white;
-      border: none;
-      padding: 0.875rem;
-      font-size: 1rem;
-      font-weight: 600;
-      border-radius: 0.5rem;
-      cursor: pointer;
-      transition: background-color 0.2s, transform 0.1s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.5rem;
-    }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+  }
 
-    button:hover:not(:disabled) { background-color: var(--primary-hover); }
-    button:active:not(:disabled) { transform: translateY(1px); }
-    button:disabled { opacity: 0.7; cursor: not-allowed; }
+  .container {
+    background-color: var(--card-bg);
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+                0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    width: 100%;
+    max-width: 700px;
+    transition: all 0.3s ease;
+  }
 
-    .file-input { display: none; }
+  header { text-align: center; margin-bottom: 2rem; }
 
-    .file-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.5rem;
-    }
+  /* Header toolbar (Aa button) */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .toolbar > div:first-child { flex: 1; }
 
-    .file-label {
-      cursor: pointer;
-      color: var(--primary);
-      font-size: 0.9rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 6px;
-      transition: background 0.2s;
-      background: #eef2ff;
-      margin: 0;
-      user-select: none;
-    }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem 0;
+    color: var(--text);
+  }
 
-    .file-label:hover { background: #e0e7ff; }
+  p.subtitle {
+    color: var(--text-light);
+    font-size: 0.95rem;
+    margin: 0;
+    line-height: 1.5;
+  }
 
-    .player-ui {
-      margin-top: 20px;
-      padding: 20px;
-      background: #f8fafc;
-      border-radius: 12px;
-      border: 1px solid #e2e8f0;
-      display: none;
-      animation: fadeIn 0.4s ease-out;
-    }
+  .control-group { margin-bottom: 1.5rem; }
 
-    .player-ui.active { display: block; }
+  label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text);
+  }
 
-    .info {
-      font-size: 0.9rem;
-      color: var(--text-light);
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      font-feature-settings: "tnum";
-      font-variant-numeric: tabular-nums;
-    }
+  textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    resize: vertical;
+    min-height: 150px;
+    font-family: inherit;
+    font-size: 1rem;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+    line-height: 1.5;
+  }
 
-    .book-view {
-      background: #fff;
-      padding: 2rem;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      margin-bottom: 1rem;
-      font-size: 1.15rem;
-      line-height: 1.6;
-      min-height: 200px;
-      white-space: pre-wrap;
-      position: relative;
-      max-height: 360px;
-      overflow-y: auto;
-      overscroll-behavior: contain;
-    }
+  textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgb(1, 241, 241);
+  }
 
-    .w {
-      cursor: pointer;
-      border-radius: 3px;
-      transition: background 0.1s;
-      padding: 0 1px;
-      display: inline-block;
-    }
-    .w:hover { background: #e0e7ff; }
-    .w.active {
-      background-color: #ffeb3b;
-      outline: 2px solid #f59e0b;
-      border-radius: 4px;
-      color: #000;
-      font-weight: bold;
-      position: relative;
-      z-index: 10;
-    }
+  textarea:disabled { background-color: #f9fafb; color: #9ca3af; }
 
-    .chapter-list {
-      max-height: 150px;
-      overflow-y: auto;
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      margin-top: 10px;
-      padding: 5px;
-    }
+  select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background-color: white;
+    font-size: 1rem;
+    cursor: pointer;
+    box-sizing: border-box;
+  }
 
-    .chapter-item {
-      padding: 8px 10px;
-      font-size: 0.85rem;
-      border-bottom: 1px solid #f1f5f9;
-      cursor: pointer;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: var(--text-light);
-      border-radius: 4px;
-      user-select: none;
-    }
+  button {
+    width: 100%;
+    background-color: var(--primary);
+    color: white;
+    border: none;
+    padding: 0.875rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
 
-    .chapter-item:hover { background: #f8fafc; color: var(--primary); }
-    .chapter-item.active { background: #e0e7ff; color: var(--primary); font-weight: 600; }
+  button:hover:not(:disabled) { background-color: var(--primary-hover); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: 0.7; cursor: not-allowed; }
 
-    .progress-bar {
-      height: 8px;
-      background: #e2e8f0;
-      border-radius: 4px;
-      margin: 15px 0;
-      overflow: hidden;
-      position: relative;
-    }
+  /* Small icon-like button in header */
+  .btn-icon {
+    width: auto;
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.6rem;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--panel-border);
+    box-shadow: none;
+  }
+  .btn-icon:hover:not(:disabled) { background: rgba(255,255,255,.98); }
+  body.theme-night .btn-icon:hover:not(:disabled) { background: rgba(15,23,42,.98); }
+  body.theme-sepia .btn-icon:hover:not(:disabled) { background: rgba(244,236,216,.98); }
 
-    .progress-fill {
-      height: 100%;
-      background: var(--primary);
-      width: 0%;
-      transition: width 0.3s ease;
-    }
+  .settings { position: relative; }
 
-    audio {
-      width: 100%;
-      height: 40px;
-      margin-bottom: 15px;
-      border-radius: 8px;
-    }
+  /* Popover with frosted-glass look via backdrop-filter [web:522][web:527] */
+  .settings-popover {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    width: 260px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+    display: none;
+    z-index: 50;
+  }
+  .settings-popover.open { display: block; }
 
-    .controls { display: flex; gap: 12px; }
-    .controls button { padding: 0.6rem; font-size: 0.9rem; }
+  .segmented {
+    display: flex;
+    gap: 6px;
+  }
+  .segmented button{
+    width: auto;
+    flex: 1;
+    padding: 0.55rem 0.5rem;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--panel-border);
+    font-weight: 600;
+  }
+  .segmented button[aria-pressed="true"]{
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
 
-    .btn-secondary { background-color: #64748b; }
-    .btn-secondary:hover:not(:disabled) { background-color: #475569; }
+  .file-input { display: none; }
 
-    .btn-danger { background-color: var(--error); }
-    .btn-danger:hover:not(:disabled) { background-color: #dc2626; }
+  .file-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
 
-    .status-message {
-      margin-top: 1rem;
-      text-align: center;
-      font-size: 0.9rem;
-      min-height: 1.4em;
-      color: var(--primary);
-      font-weight: 500;
-    }
+  .file-label {
+    cursor: pointer;
+    color: var(--primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: background 0.2s;
+    background: #eef2ff;
+    margin: 0;
+    user-select: none;
+  }
 
-    .status-message.error { color: var(--error); }
-    .status-message.success { color: var(--success); }
+  .file-label:hover { background: #e0e7ff; }
 
-    .hint {
-      font-size: 0.8rem;
-      color: var(--text-light);
-      text-align: right;
-      margin-top: 0.4rem;
-    }
+  .player-ui {
+    margin-top: 20px;
+    padding: 20px;
+    background: var(--panel);
+    border-radius: 12px;
+    border: 1px solid var(--panel-border);
+    display: none;
+    animation: fadeIn 0.4s ease-out;
+    backdrop-filter: blur(10px);
+  }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-  </style>
+  .player-ui.active { display: block; }
+
+  .info {
+    font-size: 0.9rem;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+  }
+
+  .book-view {
+    background: var(--paper);
+    color: var(--ink);
+    padding: 2rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    font-size: 1.15rem;
+    line-height: 1.6;
+    min-height: 200px;
+    white-space: pre-wrap;
+    position: relative;
+    max-height: 360px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .w {
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background 0.1s;
+    padding: 0 1px;
+    display: inline-block;
+  }
+  .w:hover { background: #e0e7ff; }
+  .w.active {
+    background-color: var(--hl);
+    outline: 2px solid var(--hl-outline);
+    border-radius: 4px;
+    color: #000;
+    font-weight: bold;
+    position: relative;
+    z-index: 10;
+  }
+
+  .chapter-list {
+    max-height: 150px;
+    overflow-y: auto;
+    background: var(--paper);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    margin-top: 10px;
+    padding: 5px;
+  }
+
+  .chapter-item {
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--muted);
+    border-radius: 4px;
+    user-select: none;
+  }
+
+  .chapter-item:hover { background: #f8fafc; color: var(--primary); }
+  .chapter-item.active { background: #e0e7ff; color: var(--primary); font-weight: 600; }
+
+  .progress-bar {
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 4px;
+    margin: 15px 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--primary);
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  audio {
+    width: 100%;
+    height: 40px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+  }
+
+  .controls { display: flex; gap: 12px; }
+  .controls button { padding: 0.6rem; font-size: 0.9rem; }
+
+  .btn-secondary { background-color: #64748b; }
+  .btn-secondary:hover:not(:disabled) { background-color: #475569; }
+
+  .btn-danger { background-color: var(--error); }
+  .btn-danger:hover:not(:disabled) { background-color: #b91c1c; }
+
+  .status-message {
+    margin-top: 1rem;
+    text-align: center;
+    font-size: 0.9rem;
+    min-height: 1.4em;
+    color: var(--primary);
+    font-weight: 500;
+  }
+
+  .status-message.error { color: var(--error); }
+  .status-message.success { color: var(--success); }
+
+  .hint {
+    font-size: 0.8rem;
+    color: var(--text-light);
+    text-align: right;
+    margin-top: 0.4rem;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+
 </head>
 <body>
 
 <div class="container">
   <header>
-    <h1>Нейро-Читалка</h1>
-    <p class="subtitle">Потоковое чтение книг с синхронизацией</p>
+    <div class="toolbar">
+      <div>
+        <h1>Нейро-Читалка</h1>
+        <p class="subtitle">Потоковое чтение книг с синхронизацией</p>
+      </div>
+      <div class="settings">
+        <button id="themeBtn" class="btn-icon" type="button" title="Тема (Aa)">Aa</button>
+        <div id="themePopover" class="settings-popover" role="dialog" aria-label="Настройки темы">
+          <div class="segmented" role="group" aria-label="Тема">
+            <button type="button" data-theme="day" aria-pressed="false">День</button>
+            <button type="button" data-theme="night" aria-pressed="false">Ночь</button>
+            <button type="button" data-theme="sepia" aria-pressed="false">Сепия</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </header>
 
   <div id="inputSection">
@@ -346,16 +473,71 @@
 </div>
 
 <script>
-  // ===== КОНФИГ =====
+  // =========================
+  // THEME (Day/Night/Sepia)
+  // =========================
+  const THEME_KEY = "neuro_reader_theme_v1";
+
+  function applyTheme(name) {
+    const t = (name === "night" || name === "sepia" || name === "day") ? name : "day";
+    document.body.classList.remove("theme-day", "theme-night", "theme-sepia");
+    document.body.classList.add(`theme-${t}`);
+
+    // sync pressed state
+    document.querySelectorAll('#themePopover [data-theme]').forEach((b) => {
+      b.setAttribute("aria-pressed", (b.dataset.theme === t) ? "true" : "false");
+    });
+
+    try { localStorage.setItem(THEME_KEY, t); } catch {}
+  }
+
+  function loadTheme() {
+    try { return localStorage.getItem(THEME_KEY) || "day"; }
+    catch { return "day"; }
+  }
+
+  function initThemeUI() {
+    const themeBtn = document.getElementById("themeBtn");
+    const themePopover = document.getElementById("themePopover");
+    if (!themeBtn || !themePopover) return;
+
+    const toggleThemePopover = (force) => {
+      const open = (typeof force === "boolean") ? force : !themePopover.classList.contains("open");
+      themePopover.classList.toggle("open", open);
+    };
+
+    themeBtn.addEventListener("click", () => toggleThemePopover());
+    themePopover.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-theme]");
+      if (!b) return;
+      applyTheme(b.dataset.theme);
+      toggleThemePopover(false);
+    });
+
+    document.addEventListener("click", (e) => {
+      if (e.target.closest(".settings")) return;
+      toggleThemePopover(false);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") toggleThemePopover(false);
+    });
+  }
+
+  // =========================
+  // CONFIG
+  // =========================
   const CHUNK_SIZE = 1500;
   const PRELOAD_AHEAD = 1;
   const SCROLL_THROTTLE_MS = 250;
   const DEBUG = false;
 
-  // упреждение подсветки (сек)
+  // lead for highlight (seconds)
   let HIGHLIGHT_LEAD = 0.18;
 
-  // ===== СОСТОЯНИЕ =====
+  // =========================
+  // STATE
+  // =========================
   let chunks = [];
   let chunksMeta = []; // [{ text, start }]
   let chapters = [];
@@ -363,47 +545,53 @@
   let currentMarks = [];
 
   let currentWordSpans = [];
-  let wordCharStarts = []; // стартовые char-offset каждого "слова" в текущем чанке
+  let wordCharStarts = []; // start char-offset for each rendered "word"
   let isPlaying = false;
   let lastActiveWordIndex = -1;
   let lastScrollAt = 0;
   let playToken = 0;
 
-  const audioCache = new Map();     // idx -> {audio_url, marks, cache}
-  const inFlight = new Map();       // idx -> Promise
-  const controllers = new Map();    // idx -> AbortController
+  const audioCache = new Map();   // idx -> {audio_url, marks, cache}
+  const inFlight = new Map();     // idx -> Promise
+  const controllers = new Map();  // idx -> AbortController
   let rafId = 0;
   let reqSeq = 0;
 
-  // ===== DOM =====
+  // =========================
+  // DOM
+  // =========================
   const $ = (id) => document.getElementById(id);
 
-  const textInput    = $('text');
-  const fileInput    = $('fileInput');
-  const startBtn     = $('startBtn');
-  const inputSection = $('inputSection');
+  const textInput = $("text");
+  const fileInput = $("fileInput");
+  const startBtn = $("startBtn");
+  const inputSection = $("inputSection");
 
-  const statusEl    = $('status');
-  const playerUI    = $('playerUI');
-  const player      = $('audioPlayer');
-  const bookDisplay = $('bookDisplay');
-  const chapterList = $('chapterList');
-  const voiceSelect = $('voice');
+  const statusEl = $("status");
+  const playerUI = $("playerUI");
+  const player = $("audioPlayer");
+  const bookDisplay = $("bookDisplay");
+  const chapterList = $("chapterList");
+  const voiceSelect = $("voice");
 
-  const chunkInfoEl   = $('chunkInfo');
-  const preloadInfoEl = $('preloadInfo');
-  const progressEl    = $('progress');
+  const chunkInfoEl = $("chunkInfo");
+  const preloadInfoEl = $("preloadInfo");
+  const progressEl = $("progress");
 
-  const prevBtn = $('prevBtn');
-  const nextBtn = $('nextBtn');
-  const stopBtn = $('stopBtn');
+  const prevBtn = $("prevBtn");
+  const nextBtn = $("nextBtn");
+  const stopBtn = $("stopBtn");
 
-  // ===== ЛОГ =====
-  function log(...args)  { if (DEBUG) console.log(...args); }
+  // =========================
+  // LOG
+  // =========================
+  function log(...args) { if (DEBUG) console.log(...args); }
   function warn(...args) { if (DEBUG) console.warn(...args); }
-  function err(...args)  { if (DEBUG) console.error(...args); }
+  function err(...args) { if (DEBUG) console.error(...args); }
 
-  // ===== ПРОГРЕСС (localStorage) =====
+  // =========================
+  // PROGRESS (localStorage)
+  // =========================
   const PROGRESS_KEY = "neuro_reader_progress_v1";
 
   function saveProgress() {
@@ -412,12 +600,11 @@
       text: textInput.value,
       voice: voiceSelect.value,
       chunk_index: currentChunkIndex,
-      position: player.currentTime
+      position: player.currentTime,
     };
     try {
       localStorage.setItem(PROGRESS_KEY, JSON.stringify(payload));
     } catch (e) {
-      // quota/disabled storage — не критично
       err("saveProgress failed", e);
     }
   }
@@ -433,14 +620,16 @@
     }
   }
 
-  // ===== УТИЛИТЫ UI =====
+  // =========================
+  // UI helpers
+  // =========================
   function setStatus(text, kind) {
-    statusEl.textContent = text || '';
-    statusEl.className = 'status-message' + (kind ? ' ' + kind : '');
+    statusEl.textContent = text || "";
+    statusEl.className = "status-message" + (kind ? " " + kind : "");
   }
 
   function abortAllRequests() {
-    controllers.forEach(c => c.abort());
+    controllers.forEach((c) => c.abort());
     controllers.clear();
     inFlight.clear();
   }
@@ -458,19 +647,21 @@
   function updateProgressUI() {
     chunkInfoEl.textContent = `Фрагмент ${chunks.length ? (currentChunkIndex + 1) : 0} из ${chunks.length}`;
     const percent = chunks.length ? (((currentChunkIndex + 1) / chunks.length) * 100) : 0;
-    progressEl.style.width = percent + '%';
+    progressEl.style.width = percent + "%";
   }
 
   function updateCacheInfo() {
     preloadInfoEl.textContent = `Кэш: ${audioCache.size}`;
   }
 
-  // ===== РЕЗКА ТЕКСТА С OFFSET =====
+  // =========================
+  // Text chunking with offsets
+  // =========================
   function splitTextWithOffsets(text) {
     const re = /[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g;
     let m;
 
-    let buf = '';
+    let buf = "";
     let bufStartRaw = 0;
     let bufInited = false;
 
@@ -486,7 +677,7 @@
         buf = seg;
       } else {
         if (buf.length + seg.length > CHUNK_SIZE) {
-          const trimmed = buf.replace(/^\s+/, '');
+          const trimmed = buf.replace(/^\s+/, "");
           const lead = buf.length - trimmed.length;
           const start = bufStartRaw + lead;
           if (trimmed.length) out.push({ text: trimmed, start });
@@ -500,7 +691,7 @@
     }
 
     if (bufInited) {
-      const trimmed = buf.replace(/^\s+/, '');
+      const trimmed = buf.replace(/^\s+/, "");
       const lead = buf.length - trimmed.length;
       const start = bufStartRaw + lead;
       if (trimmed.length) out.push({ text: trimmed, start });
@@ -514,12 +705,14 @@
     return out;
   }
 
-  // ===== ГЛАВЫ -> ЧАНКИ =====
+  // =========================
+  // Chapters -> chunks
+  // =========================
   function mapChaptersToChunks() {
     if (!chapters || !chapters.length) return;
     if (!chunksMeta || !chunksMeta.length) return;
 
-    const starts = chunksMeta.map(c => c.start);
+    const starts = chunksMeta.map((c) => c.start);
 
     function findChunkIndexByCharOffset(pos) {
       let lo = 0, hi = starts.length - 1, ans = 0;
@@ -531,8 +724,8 @@
       return ans;
     }
 
-    chapters.forEach(ch => {
-      if (typeof ch.start_char === 'number' && Number.isFinite(ch.start_char)) {
+    chapters.forEach((ch) => {
+      if (typeof ch.start_char === "number" && Number.isFinite(ch.start_char)) {
         ch.chunk_index = findChunkIndexByCharOffset(ch.start_char);
       } else {
         ch.chunk_index = ch.chunk_index ?? 0;
@@ -543,7 +736,7 @@
   }
 
   function renderNavigation() {
-    chapterList.innerHTML = '';
+    chapterList.innerHTML = "";
     const frag = document.createDocumentFragment();
 
     const items = (chapters && chapters.length)
@@ -552,19 +745,19 @@
           .map((c, idx) => ({
             title: `${idx + 1}. ${c.text.substring(0, 60)}...`,
             level: 1,
-            chunk_index: idx
+            chunk_index: idx,
           }))
           .reverse();
 
     items.forEach((ch, i) => {
-      const div = document.createElement('div');
+      const div = document.createElement("div");
       const idx = ch.chunk_index ?? i;
-      div.className = 'chapter-item';
+      div.className = "chapter-item";
       div.dataset.idx = String(idx);
       div.id = `nav-item-${idx}`;
       div.textContent = ch.title || `Фрагмент ${i + 1}`;
       const level = Number(ch.level) || 1;
-      div.style.paddingLeft = (level - 1) * 16 + 'px';
+      div.style.paddingLeft = (level - 1) * 16 + "px";
       frag.appendChild(div);
     });
 
@@ -572,12 +765,12 @@
   }
 
   function setNavActive(index) {
-    document.querySelectorAll('.chapter-item.active')
-      .forEach(el => el.classList.remove('active'));
+    document.querySelectorAll(".chapter-item.active")
+      .forEach((el) => el.classList.remove("active"));
     const navItem = document.getElementById(`nav-item-${index}`);
     if (navItem) {
-      navItem.classList.add('active');
-      navItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      navItem.classList.add("active");
+      navItem.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }
 
@@ -595,7 +788,9 @@
     setNavActive(active.chunk_index ?? 0);
   }
 
-  // ===== MARKS =====
+  // =========================
+  // Marks helpers
+  // =========================
   function findMarkIndexByTime(t) {
     const a = currentMarks;
     let lo = 0, hi = a.length - 1, ans = -1;
@@ -608,12 +803,12 @@
   }
 
   function inferOffsetUnit(marks) {
-    if (!Array.isArray(marks) || !marks.length) return { kind: 'none', div: 1 };
+    if (!Array.isArray(marks) || !marks.length) return { kind: "none", div: 1 };
     const max = marks[marks.length - 1]?.offset;
-    if (!Number.isFinite(max)) return { kind: 'unknown', div: 1 };
-    if (max > 1e6) return { kind: 'ticks_100ns?', div: 1e7 };
-    if (max > 1e3) return { kind: 'ms?', div: 1e3 };
-    return { kind: 'seconds?', div: 1 };
+    if (!Number.isFinite(max)) return { kind: "unknown", div: 1 };
+    if (max > 1e6) return { kind: "ticks_100ns?", div: 1e7 };
+    if (max > 1e3) return { kind: "ms?", div: 1e3 };
+    return { kind: "seconds?", div: 1 };
   }
 
   function normalizeMarksToSeconds(data) {
@@ -623,7 +818,7 @@
     const { div } = inferOffsetUnit(marks);
     if (div === 1) return data;
 
-    data.marks = marks.map(m => ({ ...m, offset: m.offset / div }));
+    data.marks = marks.map((m) => ({ ...m, offset: m.offset / div }));
     return data;
   }
 
@@ -633,12 +828,14 @@
     if (!Number.isFinite(last) || last <= 0) return;
     const scale = player.duration / last;
     if (Math.abs(1 - scale) < 0.02) return;
-    currentMarks = currentMarks.map(m => ({ ...m, offset: m.offset * scale }));
+    currentMarks = currentMarks.map((m) => ({ ...m, offset: m.offset * scale }));
   }
 
-  // ===== ТЕКСТ -> СПАНЫ + CHAR OFFSETS =====
+  // =========================
+  // Text -> spans + char offsets
+  // =========================
   function renderInteractiveText(text) {
-    bookDisplay.innerHTML = '';
+    bookDisplay.innerHTML = "";
     currentWordSpans = [];
     wordCharStarts = [];
     lastActiveWordIndex = -1;
@@ -651,10 +848,10 @@
       const w = m[0];
       const start = m.index;
 
-      const span = document.createElement('span');
-      span.className = 'w';
+      const span = document.createElement("span");
+      span.className = "w";
       span.dataset.w = wi;
-      span.textContent = w + ' ';
+      span.textContent = w + " ";
       frag.appendChild(span);
 
       currentWordSpans.push(span);
@@ -682,11 +879,13 @@
     const p = bookDisplay.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     if (r.top < p.top || r.bottom > p.bottom) {
-      el.scrollIntoView({ block: 'nearest' });
+      el.scrollIntoView({ block: "nearest" });
     }
   }
 
-  // ===== СЕТЬ =====
+  // =========================
+  // Network
+  // =========================
   async function fetchAudio(index) {
     if (index < 0 || index >= chunks.length) return null;
 
@@ -695,7 +894,7 @@
 
     const reqId = ++reqSeq;
     const voice = voiceSelect.value;
-    const text = chunks[index] || '';
+    const text = chunks[index] || "";
 
     const promise = (async () => {
       controllers.get(index)?.abort();
@@ -703,14 +902,14 @@
       controllers.set(index, controller);
 
       try {
-        const response = await fetch('/speak', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch("/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           signal: controller.signal,
-          body: JSON.stringify({ text, voice })
+          body: JSON.stringify({ text, voice }),
         });
 
-        if (!response.ok) throw new Error('Ошибка сети или сервера');
+        if (!response.ok) throw new Error("Ошибка сети или сервера");
 
         let data = await response.json();
         data = normalizeMarksToSeconds(data);
@@ -719,7 +918,7 @@
         updateCacheInfo();
         return data;
       } catch (e) {
-        if (e && e.name === 'AbortError') return null;
+        if (e && e.name === "AbortError") return null;
         err(`NET /speak FAIL #${reqId} (index=${index + 1})`, e);
         throw e;
       } finally {
@@ -735,7 +934,9 @@
     }
   }
 
-  // ===== ПОДСВЕТКА =====
+  // =========================
+  // Highlight loop
+  // =========================
   function highlightFrame() {
     if (!isPlaying || player.paused || player.ended) {
       rafId = 0;
@@ -762,7 +963,7 @@
 
     if (wordIdx !== -1 && wordIdx !== lastActiveWordIndex) {
       if (lastActiveWordIndex !== -1) {
-        currentWordSpans[lastActiveWordIndex]?.classList.remove('active');
+        currentWordSpans[lastActiveWordIndex]?.classList.remove("active");
       }
       lastActiveWordIndex = wordIdx;
 
@@ -773,18 +974,20 @@
           ensureVisible(el);
           lastScrollAt = now;
         }
-        el.classList.add('active');
+        el.classList.add("active");
       }
     }
 
     rafId = requestAnimationFrame(highlightFrame);
   }
 
-  // ===== ПРОИГРЫВАНИЕ =====
+  // =========================
+  // Playback
+  // =========================
   async function playChunk(index) {
     if (!isPlaying) return;
     if (index < 0 || index >= chunks.length) {
-      if (index >= chunks.length) setStatus('Книга прочитана до конца!', 'success');
+      if (index >= chunks.length) setStatus("Книга прочитана до конца!", "success");
       return;
     }
 
@@ -793,12 +996,12 @@
     resetHighlightState();
     updateProgressUI();
     updateActiveChapter();
-    setStatus(`Генерация фрагмента ${index + 1}...`, '');
+    setStatus(`Генерация фрагмента ${index + 1}...`, "");
 
     const data = audioCache.get(index) || await fetchAudio(index);
     if (myToken !== playToken) return;
     if (!data) {
-      setStatus(`Не удалось загрузить часть ${index + 1}.`, 'error');
+      setStatus(`Не удалось загрузить часть ${index + 1}.`, "error");
       return;
     }
 
@@ -811,19 +1014,21 @@
       rescaleMarksToDuration();
 
       const saved = loadProgress();
-      if (saved &&
-          Number.isFinite(saved.position) &&
-          saved.chunk_index === currentChunkIndex) {
+      if (
+        saved &&
+        Number.isFinite(saved.position) &&
+        saved.chunk_index === currentChunkIndex
+      ) {
         try { player.currentTime = saved.position; } catch {}
       }
     };
 
-    setStatus(`Читаю фрагмент ${index + 1}...`, '');
+    setStatus(`Читаю фрагмент ${index + 1}...`, "");
 
     try {
       await player.play();
     } catch {
-      setStatus('Автозапуск заблокирован браузером. Нажмите Play.', '');
+      setStatus("Автозапуск заблокирован браузером. Нажмите Play.", "");
     }
 
     for (let k = 1; k <= PRELOAD_AHEAD; k++) {
@@ -840,68 +1045,72 @@
     playToken++;
 
     player.pause();
-    player.src = '';
+    player.src = "";
 
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
 
-    playerUI.classList.remove('active');
-    inputSection.style.display = 'block';
+    playerUI.classList.remove("active");
+    inputSection.style.display = "block";
 
     abortAllRequests();
     clearCaches();
-    setStatus('Чтение остановлено.', '');
+    setStatus("Чтение остановлено.", "");
   }
 
-  // ===== ЗАГРУЗКА ФАЙЛА =====
+  // =========================
+  // File upload
+  // =========================
   async function uploadFile(input) {
     if (!input.files || !input.files[0]) return;
 
     const file = input.files[0];
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
 
-    setStatus('Извлечение текста, подождите...', '');
+    setStatus("Извлечение текста, подождите...", "");
     textInput.disabled = true;
     startBtn.disabled = true;
 
     try {
-      const res = await fetch('/extract_text', { method: 'POST', body: formData });
+      const res = await fetch("/extract_text", { method: "POST", body: formData });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Ошибка обработки файла');
+      if (!res.ok) throw new Error(data.error || "Ошибка обработки файла");
 
-      textInput.value = data.text || '';
+      textInput.value = data.text || "";
       chapters = Array.isArray(data.chapters) ? data.chapters : [];
 
       chunksMeta = splitTextWithOffsets(textInput.value);
-      chunks = chunksMeta.map(c => c.text);
+      chunks = chunksMeta.map((c) => c.text);
 
       mapChaptersToChunks();
       renderNavigation();
 
-      setStatus(`Успешно загружено! Символов: ${textInput.value.length}`, 'success');
-      setTimeout(() => { if (!isPlaying) setStatus('', ''); }, 3000);
+      setStatus(`Успешно загружено! Символов: ${textInput.value.length}`, "success");
+      setTimeout(() => { if (!isPlaying) setStatus("", ""); }, 3000);
     } catch (e) {
-      err('FILE upload error', e);
-      setStatus('Ошибка: ' + (e?.message || e), 'error');
+      err("FILE upload error", e);
+      setStatus("Ошибка: " + (e?.message || e), "error");
     } finally {
       textInput.disabled = false;
       startBtn.disabled = false;
-      input.value = '';
+      input.value = "";
     }
   }
 
-  // ===== СТАРТ =====
+  // =========================
+  // Start
+  // =========================
   async function startReading() {
     const text = textInput.value.trim();
     if (!text) {
-      setStatus('Введите текст или загрузите книгу!', 'error');
+      setStatus("Введите текст или загрузите книгу!", "error");
       textInput.focus();
       return;
     }
 
     chunksMeta = splitTextWithOffsets(text);
-    chunks = chunksMeta.map(c => c.text);
+    chunks = chunksMeta.map((c) => c.text);
     if (!chunks.length) return;
 
     playToken++;
@@ -914,49 +1123,53 @@
     mapChaptersToChunks();
     renderNavigation();
 
-    inputSection.style.display = 'none';
-    playerUI.classList.add('active');
+    inputSection.style.display = "none";
+    playerUI.classList.add("active");
 
-    setStatus('Подготовка аудиопотока...', '');
+    setStatus("Подготовка аудиопотока...", "");
     updateProgressUI();
     updateCacheInfo();
 
     await playChunk(0);
   }
 
-  // ===== UI события =====
-  startBtn.addEventListener('click', startReading);
-  prevBtn.addEventListener('click', prevChunk);
-  nextBtn.addEventListener('click', nextChunk);
-  stopBtn.addEventListener('click', stopReading);
-  fileInput.addEventListener('change', (e) => uploadFile(e.target));
+  // =========================
+  // UI events
+  // =========================
+  startBtn.addEventListener("click", startReading);
+  prevBtn.addEventListener("click", prevChunk);
+  nextBtn.addEventListener("click", nextChunk);
+  stopBtn.addEventListener("click", stopReading);
+  fileInput.addEventListener("change", (e) => uploadFile(e.target));
 
-  textInput.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+  textInput.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
       startReading();
     }
   });
 
-  chapterList.addEventListener('click', (e) => {
-    const item = e.target.closest('.chapter-item');
+  chapterList.addEventListener("click", (e) => {
+    const item = e.target.closest(".chapter-item");
     if (!item) return;
     const idx = Number(item.dataset.idx);
     if (Number.isFinite(idx)) playChunk(idx);
   });
 
-  // ===== Media события =====
-  player.addEventListener('playing', () => {
+  // =========================
+  // Media events
+  // =========================
+  player.addEventListener("playing", () => {
     if (!rafId) rafId = requestAnimationFrame(highlightFrame);
     saveProgress();
   });
 
-  player.addEventListener('pause', () => {
+  player.addEventListener("pause", () => {
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
   });
 
-  player.addEventListener('ended', () => {
+  player.addEventListener("ended", () => {
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
     if (isPlaying) playChunk(currentChunkIndex + 1);
@@ -966,7 +1179,13 @@
     if (!player.paused && !player.ended) saveProgress();
   }, 3000);
 
-  window.addEventListener('load', async () => {
+  // =========================
+  // Boot
+  // =========================
+  window.addEventListener("load", async () => {
+    applyTheme(loadTheme());
+    initThemeUI();
+
     const p = loadProgress();
     if (!p || !p.text) return;
 
@@ -974,34 +1193,38 @@
     if (p.voice) voiceSelect.value = p.voice;
 
     chunksMeta = splitTextWithOffsets(p.text);
-    chunks = chunksMeta.map(c => c.text);
+    chunks = chunksMeta.map((c) => c.text);
     if (!chunks.length) return;
 
     chapters = [];
     renderNavigation();
 
-    if (Number.isFinite(p.chunk_index) &&
-        p.chunk_index >= 0 &&
-        p.chunk_index < chunks.length) {
+    if (
+      Number.isFinite(p.chunk_index) &&
+      p.chunk_index >= 0 &&
+      p.chunk_index < chunks.length
+    ) {
       currentChunkIndex = p.chunk_index;
       setNavActive(currentChunkIndex);
     }
 
-    inputSection.style.display = 'none';
-    playerUI.classList.add('active');
+    inputSection.style.display = "none";
+    playerUI.classList.add("active");
     isPlaying = true;
     await playChunk(currentChunkIndex);
   });
 
-  // экспорт для отладки
+  // Debug exports
   window._dbg = {
     get chunks() { return chunks; },
     get currentMarks() { return currentMarks; },
     get audioCache() { return audioCache; },
     player,
     inferOffsetUnit,
+    applyTheme,
   };
 </script>
+
 
 </body>
 </html>
