@@ -105,15 +105,28 @@ def _clean_pdf_text(s: str) -> str:
 
     s = s.replace("\r\n", "\n").replace("\r", "\n")
 
-    # 1) Склеить переносы слов.
-    # Часто PDF даёт варианты:
+
+    # Часто в PDF встречается "мягкий перенос" (soft hyphen), его TTS читает как дефис
+    s = s.replace("\u00ad", "")
+
+    # Нормализуем разные виды тире/дефиса к обычному "-"
+    s = s.translate({
+        ord("\u2010"): ord("-"),  # hyphen
+        ord("\u2011"): ord("-"),  # non-breaking hyphen
+        ord("\u2212"): ord("-"),  # minus sign
+    })
+
+    # 1) Склеить переносы слов (и варианты с пробелом после дефиса).
+    # Примеры из PDF-экстракции:
     #   "от-\nносительно"
-    #   "реализу- емые"
-    #   "вне зави- симости"
+    #   "про- читал"
+    #   "разобрать- ся"
+    #   "по- ставленной"
     #
-    # Удаляем дефис, если он стоит между буквами/цифрами и дальше идёт whitespace,
-    # а потом снова буква/цифра. Это сохраняет обычные дефисы "кибер-безопасность".
-    s = re.sub(r"(?<=\w)-\s+(?=\w)", "", s)
+    # Удаляем дефис только когда он "разрывает" слово: \w - whitespace - \w.
+    # Это обычно сохраняет настоящие дефисы типа "кибер-безопасность".
+    # Склеиваем переносы слов: дефис + любые пробельные/невидимые разделители
+    s = re.sub(r"(?<=\w)-[\s\u200b\u2060]+(?=\w)", "", s)
 
     # 2) Обычные переносы строк внутри абзаца заменяем на пробел
     #    (двойные \n оставляем как границы абзацев)
@@ -123,6 +136,40 @@ def _clean_pdf_text(s: str) -> str:
     s = re.sub(r"[ \t]{2,}", " ", s)
 
     return s.strip()
+
+def _log_pdf_hyphen_issues(*, label: str, s: str, limit: int = 12) -> None:
+    """
+    Диагностика "про- читал/разобрать- ся/по- ставленной":
+    логируем фрагменты, где видно дефис + пробел(ы) между \w...\w и спец-символы переносов.
+    """
+    if not s:
+        return
+
+    # 1) Самые частые "ломающие" символы
+    specials = {
+        "\u00ad": "SOFT_HYPHEN",
+        "\u2010": "HYPHEN",
+        "\u2011": "NON_BREAKING_HYPHEN",
+        "\u2212": "MINUS",
+        "\u200b": "ZERO_WIDTH_SPACE",
+        "\u2060": "WORD_JOINER",
+    }
+    found = {name: s.count(ch) for ch, name in specials.items() if ch in s}
+    if found:
+        log.info("pdf_clean[%s] specials=%s", label, found)
+
+    # 2) Типовой паттерн "разрыв слова": \w - whitespace - \w
+    rx = re.compile(r"(?<=\w)-\s+(?=\w)")
+    hits = []
+    for m in rx.finditer(s):
+        a = max(0, m.start() - 20)
+        b = min(len(s), m.end() + 20)
+        hits.append((m.start(), s[a:b]))
+        if len(hits) >= limit:
+            break
+    if hits:
+        log.info("pdf_clean[%s] hyphen_whitespace_hits=%s sample=%r",
+                 label, len(hits), hits[: min(3, len(hits))])
 
 
 # ----------------------------
@@ -406,8 +453,13 @@ def extract_text():
             reader = PdfReader(file)
             pages: List[str] = []
             for page in reader.pages:
-                t = page.extract_text() or ""
-                t = _clean_pdf_text(t)
+                t_raw = page.extract_text() or ""
+                if t_raw:
+                    _log_pdf_hyphen_issues(label="before", s=t_raw)
+
+                t = _clean_pdf_text(t_raw)
+                if t:
+                    _log_pdf_hyphen_issues(label="after", s=t)
                 if t:
                     pages.append(t)
             text = "\n\n".join(pages).strip()
