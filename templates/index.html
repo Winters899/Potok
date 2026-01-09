@@ -505,13 +505,16 @@
     chapterList.innerHTML = '';
     const frag = document.createDocumentFragment();
 
+    // reverse() мутирует массив, поэтому делаем копию через slice()
     const items = (chapters && chapters.length)
-      ? chapters
-      : chunks.map((chunk, idx) => ({
-          title: `${idx + 1}. ${chunk.substring(0, 60)}...`,
-          level: 1,
-          chunk_index: idx
-        }));
+      ? chapters.slice().reverse()
+      : chunksMeta
+          .map((c, idx) => ({
+            title: `${idx + 1}. ${c.text.substring(0, 60)}...`,
+            level: 1,
+            chunk_index: idx
+          }))
+          .reverse();
 
     items.forEach((ch, i) => {
       const div = document.createElement('div');
