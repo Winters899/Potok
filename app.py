@@ -95,6 +95,29 @@ def _read_json(path: Path) -> Any:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+def _clean_pdf_text(s: str) -> str:
+    """
+    Убираем переносы слов и "рваные" строки после извлечения текста из PDF,
+    чтобы TTS не читал "от - носительно", "маши- ны" и т.п.
+    """
+    if not s:
+        return ""
+
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    # 1) Склеить переносы слов: "от-\nносительно" -> "относительно"
+    s = re.sub(r"(?<=\w)-\n(?=\w)", "", s)
+
+    # 2) Обычные переносы строк внутри абзаца заменяем на пробел
+    #    (двойные \n оставляем как границы абзацев)
+    s = re.sub(r"(?<!\n)\n(?!\n)", " ", s)
+
+    # 3) Нормализуем множественные пробелы
+    s = re.sub(r"[ \t]{2,}", " ", s)
+
+    return s.strip()
+
+
 # ----------------------------
 # Chapter detection
 # ----------------------------
@@ -377,9 +400,10 @@ def extract_text():
             pages: List[str] = []
             for page in reader.pages:
                 t = page.extract_text() or ""
+                t = _clean_pdf_text(t)
                 if t:
                     pages.append(t)
-            text = "\n".join(pages).strip()
+            text = "\n\n".join(pages).strip()
             log.info("extract_text: pdf pages=%s text_len=%s", len(pages), len(text))
 
             chapters = _detect_chapters_pdf_outlines(reader)
