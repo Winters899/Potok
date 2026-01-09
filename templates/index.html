@@ -356,6 +356,7 @@
 
   // ===== СОСТОЯНИЕ =====
   let chunks = [];
+  let chunksMeta = []; // [{ text, start }] start = start_char чанка в исходном тексте
   let chapters = [];
   let currentChunkIndex = 0;
   let currentMarks = [];
@@ -478,27 +479,85 @@
     return result;
   }
 
-  // ===== ГЛАВЫ / ОГЛАВЛЕНИЕ =====
-  function mapChaptersToChunks(text) {
-    const offsets = [];
-    let pos = 0;
-    for (const ch of chunks) {
-      offsets.push(pos);
-      pos += ch.length;
-    }
-    chapters.forEach(ch => {
-      if (typeof ch.start_char === 'number') {
-        let idx = 0;
-        while (idx + 1 < offsets.length && offsets[idx] < ch.start_char) {
-          idx++;
+ 
+  // splitText, но возвращает и start_char каждого чанка (точно для оглавления)
+  function splitTextWithOffsets(text) {
+    const re = /[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g;
+    let m;
+
+    let buf = '';
+    let bufStartRaw = 0;
+    let bufInited = false;
+
+    const out = [];
+
+    while ((m = re.exec(text)) !== null) {
+      const seg = m[0];
+      const segStart = m.index;
+
+      if (!bufInited) {
+        bufInited = true;
+        bufStartRaw = segStart;
+        buf = seg;
+      } else {
+        if (buf.length + seg.length > CHUNK_SIZE) {
+          const trimmed = buf.replace(/^\\s+/, '');
+          const lead = buf.length - trimmed.length;
+          const start = bufStartRaw + lead;
+          if (trimmed.length) out.push({ text: trimmed, start });
+
+          bufStartRaw = segStart;
+          buf = seg;
+        } else {
+          buf += seg;
         }
-        ch.chunk_index = idx;
+      }
+    }
+
+    if (bufInited) {
+      const trimmed = buf.replace(/^\\s+/, '');
+      const lead = buf.length - trimmed.length;
+      const start = bufStartRaw + lead;
+      if (trimmed.length) out.push({ text: trimmed, start });
+    }
+
+    if (!out.length && text.trim()) {
+      const t = text.trim();
+      out.push({ text: t, start: text.indexOf(t) });
+    }
+
+    return out;
+  }
+
+  function mapChaptersToChunks() {
+    if (!chapters || !chapters.length) return;
+    if (!chunksMeta || !chunksMeta.length) return;
+
+    const starts = chunksMeta.map(c => c.start);
+
+    function findChunkIndexByCharOffset(pos) {
+      // rightmost start <= pos
+      let lo = 0, hi = starts.length - 1, ans = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (starts[mid] <= pos) { ans = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      return ans;
+    }
+
+    chapters.forEach(ch => {
+      if (typeof ch.start_char === 'number' && Number.isFinite(ch.start_char)) {
+        ch.chunk_index = findChunkIndexByCharOffset(ch.start_char);
       } else if (typeof ch.page === 'number') {
+        // Без server-side start_char для PDF точного маппинга не будет
         ch.chunk_index = ch.chunk_index ?? 0;
       } else {
         ch.chunk_index = ch.chunk_index ?? 0;
       }
     });
+
+    chapters.sort((a, b) => Number(a.chunk_index ?? 0) - Number(b.chunk_index ?? 0));
   }
 
   function renderNavigation() {
@@ -808,8 +867,9 @@
 
       textInput.value = data.text || '';
       chapters = Array.isArray(data.chapters) ? data.chapters : [];
-      chunks = splitText(textInput.value);
-      mapChaptersToChunks(textInput.value);
+      chunksMeta = splitTextWithOffsets(textInput.value);
+      chunks = chunksMeta.map(c => c.text);
+      mapChaptersToChunks();
       renderNavigation();
 
       setStatus(`Успешно загружено! Символов: ${textInput.value.length}`, 'success');
@@ -833,7 +893,8 @@
       return;
     }
 
-    chunks = splitText(text);
+    chunksMeta = splitTextWithOffsets(text);
+    chunks = chunksMeta.map(c => c.text);
     if (!chunks.length) return;
 
     playToken++;
@@ -843,7 +904,7 @@
     currentChunkIndex = 0;
     isPlaying = true;
 
-    mapChaptersToChunks(text);
+    mapChaptersToChunks();
     renderNavigation();
 
     inputSection.style.display = 'none';
@@ -907,7 +968,8 @@
     textInput.value = p.text;
     if (p.voice) voiceSelect.value = p.voice;
 
-    chunks = splitText(p.text);
+    chunksMeta = splitTextWithOffsets(p.text);
+    chunks = chunksMeta.map(c => c.text);
     if (!chunks.length) return;
 
     chapters = [];
