@@ -44,6 +44,9 @@ CACHE_MAX_AGE_SEC = 3 * 24 * 3600
 CACHE_MAX_PAIRS = 2000
 CACHE_CLEANUP_EVERY_SEC = 10 * 60
 
+# если в кэше marks пустые/битые — считаем, что кэш нельзя использовать
+MIN_MARKS_FOR_CACHE_HIT = 2
+
 # ----------------------------
 # Logging
 # ----------------------------
@@ -88,6 +91,7 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".part")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
+    # os.replace делает атомарную замену файла (перезапишет существующий). [web:432]
     os.replace(tmp, path)
 
 
@@ -151,7 +155,6 @@ def _clean_pdf_text(s: str) -> str:
     s = s.replace("\xa0", " ")
 
     # Лидеры оглавления -> " — " только если строка заканчивается номером страницы
-    # (re.MULTILINE: $ и ^ работают как конец/начало каждой строки)  [web:291]
     s = re.sub(
         r"(?:\s*\.\s*){4,}(?=\s*\d+\s*$)",
         " — ",
@@ -630,10 +633,21 @@ def speak():
     if a_path.exists() and m_path.exists():
         try:
             marks = _read_json(m_path)
-            log.info("speak cache hit key=%s voice=%s marks=%s", key[:12], voice, len(marks))
-            return jsonify(
-                {"audio_url": f"/get_audio/{_audio_name(key)}", "marks": marks, "cache": True}
+            ok = isinstance(marks, list) and len(marks) >= MIN_MARKS_FOR_CACHE_HIT
+            if ok:
+                log.info("speak cache hit key=%s voice=%s marks=%s", key[:12], voice, len(marks))
+                return jsonify(
+                    {"audio_url": f"/get_audio/{_audio_name(key)}", "marks": marks, "cache": True}
+                )
+
+            log.info(
+                "speak cache invalid key=%s voice=%s marks=%r -> regen",
+                key[:12],
+                voice,
+                len(marks) if isinstance(marks, list) else type(marks).__name__,
             )
+            a_path.unlink(missing_ok=True)
+            m_path.unlink(missing_ok=True)
         except Exception:
             a_path.unlink(missing_ok=True)
             m_path.unlink(missing_ok=True)
@@ -666,6 +680,7 @@ def get_audio(filename: str):
     if not path.exists():
         return "Not found", 404
 
+    # conditional=True включает отдачу 304/206 где уместно. [web:380]
     return send_from_directory(CACHE_DIR, filename, mimetype=AUDIO_MIME, conditional=True)
 
 
